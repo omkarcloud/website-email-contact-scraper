@@ -42,7 +42,7 @@ Use it two ways — both documented below:
 
 The same scraper is also available on **Apify** and **RapidAPI**:
 
-[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Run%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api)
+[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Run%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_db0f592d-a669-4d84-afc0-912719d56aba)
 
 ## Example: Website Contacts in One Request
 
