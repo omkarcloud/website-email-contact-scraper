@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/omkarcloud/botasaurus/master/images/mascot.png" alt="website email contact scraper" />
+  <img src="https://www.omkar.cloud/images/tools/website-email-contact-scraper/logo.png" alt="website email contact scraper" />
 </p>
 <div align="center" style="margin-top: 0;">
   <h1>✨ Website Email & Contact Scraper 🤖</h1>
@@ -39,6 +39,10 @@ Use it two ways — both documented below:
 [![Try the Website Email & Contact Scraper API in the live playground — free, no signup](https://img.shields.io/badge/%E2%96%B6%20Playground-Run%20a%20live%20request%2C%20free-brightgreen?style=for-the-badge)](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=badge)
 
 [![Free Plan: 100 requests per month](https://img.shields.io/badge/Free%20tier-100%20requests%2Fmonth-blue?style=for-the-badge)](#pricing)
+
+The same scraper is also available as an **Apify Actor** and on **RapidAPI**:
+
+[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue?logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjgiIGhlaWdodD0iMjgiIHZpZXdCb3g9IjAgMCAyOCAyOCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMTQgMjhDMjEuNzMyIDI4IDI4IDIxLjczMiAyOCAxNEMyOCA2LjI2OCAyMS43MzIgMCAxNCAwQzYuMjY4IDAgMCA2LjI2OCAwIDE0QzAgMjEuNzMyIDYuMjY4IDI4IDE0IDI4WiIgZmlsbD0iIzk3RDdGRiIvPjwvc3ZnPg==)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Also%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api)
 
 ## Example: Website Contacts in One Request
 
@@ -200,7 +204,7 @@ The open source scraper is perfect for lists you run on your laptop. Reach for t
 GET https://website-email-contact-scraper.omkar.cloud/contacts?website=vercel.com
 ```
 
-Accepts a bare domain (`vercel.com`) or a full URL (`https://www.vercel.com/`). The crawl stays on the site's registrable domain, subdomains included, and is capped at 20 pages / 120 seconds — so a response can take up to ~2 minutes for slow or bot-protected sites.
+Accepts a bare domain (`vercel.com`) or a full URL (`https://vercel.com/`). The crawl stays on the site's registrable domain, subdomains included, and is capped at 20 pages / 120 seconds — so a response can take up to ~2 minutes for slow or bot-protected sites.
 
 #### Response
 
