@@ -1,0 +1,7 @@
+botasaurus
+botasaurus-server
+beautifulsoup4
+lxml
+phonenumbers
+tldextract
+wappalyzer-python3

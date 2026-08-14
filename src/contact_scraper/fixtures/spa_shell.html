@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f19">
+  <title>Acme — Loading…</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" as="script" href="/assets/vendor-9f31c2ab.js">
+  <link rel="preload" as="script" href="/assets/index-4d80e7f1.js">
+  <link rel="modulepreload" href="/assets/router-1c22aa90.js">
+  <script>
+    window.__APP_CONFIG__ = {"apiBase":"/api/v2","env":"production","release":"web@4.18.2","sentryDsn":null};
+    window.__vite_is_modern_browser = true;
+  </script>
+  <style>
+    #splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0f19}
+    #splash .spinner{width:42px;height:42px;border:3px solid #223;border-top-color:#7aa2ff;border-radius:50%;animation:r 1s linear infinite}
+    @keyframes r{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"><div id="splash"><div class="spinner"></div></div></div>
+  <script type="module" crossorigin src="/assets/vendor-9f31c2ab.js"></script>
+  <script type="module" crossorigin src="/assets/index-4d80e7f1.js"></script>
+  <script nomodule src="/assets/polyfills-legacy-77b1e0c8.js"></script>
+  <script nomodule src="/assets/index-legacy-b02f6e11.js"></script>
+</body>
+</html>
