@@ -26,6 +26,7 @@
   <img src="https://views.whatilearened.today/views/github/omkarcloud/website-email-contact-scraper.svg" width="80px" height="28px" alt="View" />
 </p>
 
+Website Email & Contact Scraper turns any website into a sales-ready contact record. Feed it a domain and get every email, phone number, and social profile the site exposes — across 17 platforms — each with the exact pages it was found on and the company's real contact flagged `is_likely_official: true`. It even detects the technologies the site runs, so you can segment leads by stack.
 
 Perfect for **lead generation and enrichment**: feed it a list of websites, get back sales-ready contact data as structured JSON.
 
@@ -33,23 +34,23 @@ Perfect for **lead generation and enrichment**: feed it a list of websites, get 
 
 Use it two ways — both documented below:
 
-1. **[Hosted API](#example-website-contacts-in-one-request)** — one GET request, no installs, no browsers, no infrastructure. 100 Requests Free.
-2. **[Open source](#-run-it-yourself--free--open-source)** — this repo. Run it on your machine with a UI dashboard, free forever for unlimited websites extraction.
+1. **[Hosted API](#example-website-contacts-in-one-request)** — one GET request, no installs, no browsers, no infrastructure. Adds AI extras the open source version doesn't have: sales-email recommendation, email verification, and an AI website finder. 200 requests free.
+2. **[Open source](#-run-it-yourself--free--open-source)** — this repo. Run it on your machine with a UI dashboard, free forever for unlimited websites.
 
 [![Try the Website Email & Contact Scraper API in the live playground — free, no signup](https://img.shields.io/badge/%E2%96%B6%20Playground-Run%20a%20live%20request%2C%20free-brightgreen?style=for-the-badge)](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=badge)
 
-[![Free Plan: 100 requests per month](https://img.shields.io/badge/Free%20tier-100%20requests%2Fmonth-blue?style=for-the-badge)](#pricing)
+[![Free Plan: 200 requests per month](https://img.shields.io/badge/Free%20tier-200%20requests%2Fmonth-blue?style=for-the-badge)](#pricing)
 
 The same scraper is also available on **Apify** and **RapidAPI**:
 
-[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Run%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_db0f592d-a669-4d84-afc0-912719d56aba)
+[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Run%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground)
 
 ## Example: Website Contacts in One Request
 
 One request to the contact scraper API:
 
 ```
-GET https://website-email-contact-scraper.omkar.cloud/contacts?website=vercel.com
+GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts?website=vercel.com
 ```
 
 ```json
@@ -73,48 +74,45 @@ GET https://website-email-contact-scraper.omkar.cloud/contacts?website=vercel.co
     }
   ],
   "phones": [],
-  "phones_uncertain": [
-    { "value": "800.352.5267", "sources": ["https://vercel.com/legal/terms"] }
-  ],
   "linkedins": [
     {
       "value": "https://www.linkedin.com/company/vercel",
-      "sources": ["https://vercel.com", "https://vercel.com/contact/sales"],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "twitters": [
     {
       "value": "https://x.com/vercel",
-      "sources": ["https://vercel.com", "https://vercel.com/contact/sales"],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "instagrams": [
     {
       "value": "https://www.instagram.com/vercel",
-      "sources": ["https://vercel.com", "https://vercel.com/contact/sales"],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "youtubes": [
     {
       "value": "https://www.youtube.com/@VercelHQ",
-      "sources": ["https://vercel.com", "https://vercel.com/contact/sales"],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "githubs": [
     {
       "value": "https://github.com/vercel",
-      "sources": ["https://vercel.com", "https://vercel.com/contact/sales"],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "blueskys": [
     {
       "value": "https://bsky.app/profile/vercel.com",
-      "sources": ["https://vercel.com/docs/accounts"],
+      "sources": ["https://vercel.com/", "https://vercel.com/about"],
       "is_likely_official": true
     }
   ],
@@ -132,9 +130,7 @@ GET https://website-email-contact-scraper.omkar.cloud/contacts?website=vercel.co
 
 **[Run this exact request in the Playground — no signup, no key →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=example)**
 
-The playground comes prefilled with this request and runs it against the live API in your browser. 
-
-Use the playground to try any website you go through the effort of installing open source version on your machine.
+The playground comes prefilled with this request and runs it against the live API in your browser. Use it to try any website before you go through the effort of installing the open source version on your machine.
 
 ## 🚀 Run It Yourself — Free & Open Source
 
@@ -182,17 +178,35 @@ docker-compose build && docker-compose up
 
 ### When to use the API instead
 
-The open source scraper is perfect for lists you run on your laptop. Reach for the [hosted API](#example-website-contacts-in-one-request) when you want contacts inside a product or pipeline — no Chrome to babysit, no servers to maintain, results in one GET request from any language. [Try it free in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=os-vs-api)
+The open source scraper is perfect for lists you run on your laptop. Reach for the [hosted API](#api-reference) when you want contacts inside a product or pipeline — no Chrome to babysit, no servers to maintain, results in one GET request from any language — or when you want the AI extras: [sales-email recommendation](#website-contacts), [email verification](#verify-email), and the [AI website finder](#find-website). [Try it free in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=os-vs-api)
 
 ## ⚡ What You Get
 
 - **📧 Emails** — including Cloudflare-protected and JavaScript-obfuscated emails that simple regex scrapers miss.
-- **📞 Phone numbers** — validated with Google's libphonenumber, region-aware based on the site's country domain. Uncertain matches are kept separate in `phones_uncertain`, so your CRM stays clean.
+- **📞 Phone numbers** — validated with Google's libphonenumber, region-aware based on the site's country domain, returned in E.164 format so your CRM stays clean.
 - **🔗 17 social platforms** — LinkedIn, Twitter/X, Instagram, Facebook, YouTube, TikTok, Pinterest, Discord, Snapchat, Threads, Telegram, Reddit, WhatsApp, GitHub, Bluesky, Medium, and Calendly.
 - **🛠️ Technology detection** — know if a site runs Shopify, WordPress, React, and hundreds of other technologies (great for segmenting leads).
 - **🎯 Official-contact ranking** — every email/phone/profile carries its source URLs, and the most prominent one per list is flagged `is_likely_official: true`.
 - **🕷️ Smart crawling** — contact and about pages are prioritized, so it usually finds the goods within a handful of pages instead of blindly crawling the whole site.
 - **🥷 Handles tough websites** — fast HTTP requests first, with automatic escalation to a real Chrome browser for JavaScript-rendered sites and bot-protected pages.
+- **🤖 AI extras (API only)** — an AI-picked `best_sales_email` for cold outreach, real-time email deliverability verification, and an AI website finder that turns a business name into its official website.
+
+## Start Getting Data in Minutes
+
+Python and Node.js integration examples are available for every endpoint in the playground, so you can get contact data in minutes instead of days.
+
+```python
+import requests
+
+# Scrape every email, phone, and social profile from a website
+response = requests.get(
+    "https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts",
+    params={"website": "vercel.com"},
+    headers={"API-Key": "YOUR_API_KEY"}
+)
+
+print(response.json())
+```
 
 ## API Reference
 
@@ -201,10 +215,18 @@ The open source scraper is perfect for lists you run on your laptop. Reach for t
 ▶ [Try it live in the Playground — no key needed →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-contacts)
 
 ```
-GET https://website-email-contact-scraper.omkar.cloud/contacts?website=vercel.com
+GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts?website=vercel.com
 ```
 
-Accepts a bare domain (`vercel.com`) or a full URL (`https://vercel.com/`). The crawl stays on the site's registrable domain, subdomains included, and is capped at 20 pages / 120 seconds — so a response can take up to ~2 minutes for slow or bot-protected sites.
+Accepts a bare domain (`vercel.com`) or a full URL (`https://vercel.com/`). Optional parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `mode` | Crawl depth: `homepage` (scan just the homepage), `key_pages` (default — also crawl the site's top contact-like pages, up to 7 pages), `deep` (crawl the whole site, up to 20 pages) |
+| `recommend_sales_email` | When `true`, an AI picks the best email for cold sales outreach and adds it as `best_sales_email`. Requires `your_product_description` |
+| `your_product_description` | A short description of YOUR product, used to judge which inbox fits it — e.g. `We sell an AI-powered lead enrichment API for sales teams.` |
+
+The crawl stays on the site's registrable domain, subdomains included — a response can take up to a couple of minutes for slow or bot-protected sites.
 
 #### Response
 
@@ -223,33 +245,30 @@ Returns the site's title and description, every email, phone number, and social 
       "value": "privacy@vercel.com",
       "sources": [
         "https://vercel.com/legal/privacy-notice",
-        "https://vercel.com/legal/cookie-policy"
+        "https://vercel.com/legal/cookie-policy",
+        "https://vercel.com/legal/dpa"
       ],
       "is_likely_official": true
     },
     {
       "value": "security@vercel.com",
-      "sources": [
-        "https://vercel.com/legal/terms"
-      ],
+      "sources": ["https://vercel.com/legal/terms"],
+      "is_likely_official": false
+    },
+    {
+      "value": "legalnotices@vercel.com",
+      "sources": ["https://vercel.com/legal/terms"],
       "is_likely_official": false
     }
   ],
   "phones": [],
-  "phones_uncertain": [
-    {
-      "value": "800.352.5267",
-      "sources": [
-        "https://vercel.com/legal/terms"
-      ]
-    }
-  ],
   "linkedins": [
     {
       "value": "https://www.linkedin.com/company/vercel",
       "sources": [
-        "https://vercel.com",
-        "https://vercel.com/contact/sales"
+        "https://vercel.com/",
+        "https://vercel.com/contact/sales",
+        "https://vercel.com/about"
       ],
       "is_likely_official": true
     }
@@ -258,30 +277,36 @@ Returns the site's title and description, every email, phone number, and social 
     {
       "value": "https://x.com/vercel",
       "sources": [
-        "https://vercel.com",
-        "https://vercel.com/contact/sales"
+        "https://vercel.com/",
+        "https://vercel.com/contact/sales",
+        "https://vercel.com/about"
       ],
       "is_likely_official": true
+    },
+    {
+      "value": "https://x.com/rauchg",
+      "sources": ["https://vercel.com/", "https://vercel.com/about"],
+      "is_likely_official": false
     }
   ],
   "instagrams": [
     {
       "value": "https://www.instagram.com/vercel",
-      "sources": [
-        "https://vercel.com",
-        "https://vercel.com/contact/sales"
-      ],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
-  "facebooks": [],
+  "facebooks": [
+    {
+      "value": "https://www.facebook.com/VercelHQ",
+      "sources": ["https://vercel.com/", "https://vercel.com/about"],
+      "is_likely_official": true
+    }
+  ],
   "youtubes": [
     {
       "value": "https://www.youtube.com/@VercelHQ",
-      "sources": [
-        "https://vercel.com",
-        "https://vercel.com/contact/sales"
-      ],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
@@ -291,66 +316,36 @@ Returns the site's title and description, every email, phone number, and social 
   "snapchats": [],
   "threads": [],
   "telegrams": [],
-  "reddits": [],
+  "reddits": [
+    {
+      "value": "https://www.reddit.com/r/vercel",
+      "sources": ["https://vercel.com/", "https://vercel.com/about"],
+      "is_likely_official": true
+    }
+  ],
   "whatsapps": [],
   "githubs": [
     {
       "value": "https://github.com/vercel",
-      "sources": [
-        "https://vercel.com",
-        "https://vercel.com/contact/sales"
-      ],
+      "sources": ["https://vercel.com/", "https://vercel.com/contact/sales"],
       "is_likely_official": true
     }
   ],
   "blueskys": [
     {
       "value": "https://bsky.app/profile/vercel.com",
-      "sources": [
-        "https://vercel.com/docs/accounts"
-      ],
+      "sources": ["https://vercel.com/", "https://vercel.com/about"],
       "is_likely_official": true
     }
   ],
   "mediums": [],
   "calendlys": [],
   "technologies": [
-    {
-      "name": "Next.js",
-      "versions": [],
-      "categories": [
-        "Web frameworks",
-        "Web servers"
-      ]
-    },
-    {
-      "name": "Node.js",
-      "versions": [],
-      "categories": [
-        "Programming languages"
-      ]
-    },
-    {
-      "name": "React",
-      "versions": [],
-      "categories": [
-        "JavaScript frameworks"
-      ]
-    },
-    {
-      "name": "Vercel",
-      "versions": [],
-      "categories": [
-        "Web servers"
-      ]
-    },
-    {
-      "name": "webpack",
-      "versions": [],
-      "categories": [
-        "Miscellaneous"
-      ]
-    }
+    { "name": "Next.js", "versions": [], "categories": ["Web frameworks", "Web servers"] },
+    { "name": "Node.js", "versions": [], "categories": ["Programming languages"] },
+    { "name": "React", "versions": [], "categories": ["JavaScript frameworks"] },
+    { "name": "Vercel", "versions": [], "categories": ["Web servers"] },
+    { "name": "webpack", "versions": [], "categories": ["Miscellaneous"] }
   ],
   "error": null
 }
@@ -358,9 +353,72 @@ Returns the site's title and description, every email, phone number, and social 
 
 </details>
 
+---
+
+### Verify Email
+
+Real-time deliverability check for an email address: mailbox existence, catch-all detection, disposable/role/free-provider classification, and a typo suggestion — perfect for cleaning the emails you just scraped before a campaign.
+
+▶ [Try it live in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-verify)
+
+```
+GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/emails/verify?email=web@netflix.com
+```
+
+#### Response
+
+<details>
+<summary>Sample Response (click to expand)</summary>
+
+```json
+{
+  "email": "web@netflix.com",
+  "result": "ok",
+  "sub_result": "ok",
+  "quality": "good",
+  "is_deliverable": true,
+  "is_role_account": true,
+  "is_free_provider": false,
+  "did_you_mean": null
+}
+```
+
+</details>
+
+---
+
+### Find Website
+
+Guess a business's official website from its name plus any extra context keys you care to pass — the perfect first step before a contact scrape when all you have is a company name. Answers are probe-confirmed live; `website` is `null` when the AI isn't confident.
+
+▶ [Try it live in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-find)
+
+```
+POST https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/websites/find
+```
+
+```json
+{ "name": "React.js" }
+```
+
+`name` is required; any other key in the body (city, industry, address…) is passed to the AI as extra context.
+
+#### Response
+
+<details>
+<summary>Sample Response (click to expand)</summary>
+
+```json
+{
+  "website": "https://react.dev"
+}
+```
+
+</details>
+
 ## 📄 Output Schema
 
-Every result — from the API and the open source scraper alike — contains these keys, always in this order:
+Every contact result — from the API and the open source scraper alike — contains these keys, always in this order:
 
 | Key | Description |
 | --- | ----------- |
@@ -368,20 +426,22 @@ Every result — from the API and the open source scraper alike — contains the
 | `title` / `description` | Homepage title and meta description |
 | `emails` | `[{value, sources, is_likely_official}]`, best first |
 | `phones` | Validated numbers in E.164 (`+14155551234`) format |
-| `phones_uncertain` | Number-like strings that could not be fully validated |
 | `linkedins`, `twitters`, `instagrams`, `facebooks`, `youtubes`, `tiktoks`, `pinterests`, `discords`, `snapchats`, `threads`, `telegrams`, `reddits`, `whatsapps`, `githubs`, `blueskys`, `mediums`, `calendlys` | Social profile URLs, one list per platform |
 | `technologies` | `[{name, versions, categories}]` detected on the homepage |
 | `error` | `null` on success, or a short reason (`"dns: no such host: ..."`) |
+
+With `recommend_sales_email=true`, the API also adds `best_sales_email` — the AI's pick for cold outreach given your product description.
 
 ## Pricing
 
 | Plan | Price | Requests/Month |
 |------|-------|----------------|
-| Free | $0 | 100 |
-| Grow | $48 | 15,000 |
-| Scale | $148 | 75,000 |
+| Free | $0 | 200 |
+| Starter | $16 | 15,000 |
+| Grow | $48 | 75,000 |
+| Scale | $148 | 300,000 |
 
-1 API call = 1 website scraped
+1 API call = 1 request
 
 Free Plan Available — [create your API key →](https://www.omkar.cloud/auth/sign-up?redirect=/api-key&utm_source=github&utm_medium=cpc&utm_content=pricing-signup). No credit card for the free tier.
 
@@ -389,7 +449,7 @@ Rather not pay at all? Run the [open source scraper](#-run-it-yourself--free--op
 
 ## 🧠 How It Works
 
-1. **Crawl** — starts at the homepage and follows same-domain links in priority order: `/contact`, `/impressum`, `/about`, `/support` pages first, capped at 20 pages and 2 levels deep. Crawling exits early once emails and phones have been found and no promising pages remain.
+1. **Crawl** — starts at the homepage and follows same-domain links in priority order: `/contact`, `/impressum`, `/about`, `/support` pages first. `key_pages` mode (the default) stops at the site's 7 most promising pages; `deep` mode goes up to 20. Crawling exits early once emails and phones have been found and no promising pages remain.
 2. **Escalate** — pages are fetched with fast HTTP requests. If the site blocks bots or renders content with JavaScript, the crawler automatically switches to a real Chrome browser for the rest of that site (and reuses the earned cookies to keep subsequent pages fast).
 3. **Extract** — emails (including `mailto:`, Cloudflare-encoded, and obfuscated forms like `name [at] company [dot] com`), phones via libphonenumber with the site's region, social links via battle-tested per-platform regexes ported from the Apify SDK, plus JSON-LD structured data.
 4. **Rank** — findings are deduped across pages and scored by prominence (homepage/footer/contact-page presence) and similarity to the site's domain. The top entry of each list is flagged `is_likely_official`.
@@ -402,7 +462,7 @@ Yes. The playground runs live requests in your browser — free, no account, no 
 
 ### Should I use the API or the open source scraper?
 
-Both use same source code and return same JSON. Use the **open source scraper** when you're comfortable running Python locally and want unlimited free scraping on your own machine. Use the **API** when you want contacts inside a product, a no-maintenance pipeline, or a language other than Python.
+Both use the same source code and return the same JSON. Use the **open source scraper** when you're comfortable running Python locally and want unlimited free scraping on your own machine. Use the **API** when you want contacts inside a product, a no-maintenance pipeline, a language other than Python — or the AI extras: sales-email recommendation, email verification, and the website finder.
 
 ### How is this different from paid tools like Hunter.io or Apify's Contact Info Scraper?
 
@@ -412,13 +472,17 @@ It gives you the same core data — emails, phones, and social profiles crawled 
 
 Every email, phone, and social profile includes `sources` (the pages it was found on), and the highest-scoring entry per list is flagged `is_likely_official: true`. Prominence on the homepage/footer/contact page and similarity to the site's domain drive the score.
 
+### Which email should I use for cold outreach?
+
+Pass `recommend_sales_email=true` plus a short `your_product_description` to the contacts endpoint, and an AI weighs every scraped inbox against your pitch — sales@ beats billing@ for a lead-gen tool — and returns its pick as `best_sales_email`. Then run it through the [Verify Email endpoint](#verify-email) to confirm it's deliverable before you hit send.
+
 ### Can it scrape JavaScript-heavy or bot-protected websites?
 
 Yes. Sites are first fetched with fast HTTP requests; when a site renders client-side (React/Next.js/Angular shells) or sits behind a bot wall (Cloudflare "Just a moment...", PerimeterX, Incapsula), the scraper automatically escalates to a real Chrome browser for that site.
 
 ### Will I get blocked or need proxies?
 
-With the open source scraper, the requests-first + real-Chrome escalation handles the vast majority of sites without any proxy setup.
+With the open source scraper, the requests-first + real-Chrome escalation handles the vast majority of sites without any proxy setup. With the API, we handle all of that server-side — you call a normal REST endpoint.
 
 ### What if a website is unreachable or has no contacts?
 
@@ -430,14 +494,14 @@ With the open source scraper there are no artificial limits — it's your machin
 
 ### I found a website where it misses contacts. What should I do?
 
-Please [open an issue](https://github.com/omkarcloud/website-email-contact-scraper/issues) with the website URL — real-world edge cases are how the extraction rules got this good. 
+Please [open an issue](https://github.com/omkarcloud/website-email-contact-scraper/issues) with the website URL — real-world edge cases are how the extraction rules got this good.
 
-Also whatsapp us about it [here](https://api.whatsapp.com/send?phone=918178804274&text=I%20have%20a%20question%20about%20the%20Website%20Email%20%26%20Contact%20Scraper.).
+Also WhatsApp us about it [here](https://api.whatsapp.com/send?phone=918178804274&text=I%20have%20a%20question%20about%20the%20Website%20Email%20%26%20Contact%20Scraper.).
 
 ## More Lead-Data Tools: Google Maps, G2, Capterra & Trustpilot
 
-- **[Google Maps Scraper (3100+ Github Stars)](https://github.com/omkarcloud/google-maps-scraper)** — the perfect first step before this scraper: search Google Maps for any niche and location ("dentists in New York") and get every business with its name, address, phone, ratings, and website — then feed those websites straight into this contact scraper to build a complete lead list. Super Generous Free Tier: easily get 100K Leads/month free.
-- **[G2 Scraper API](https://github.com/omkarcloud/g2-scraper)** — turn any G2 product page into clean JSON: 40+ fields including reviews, pricing, ratings, and company details. Great for enriching the leads you just scraped contacts for. 62+ Github Stars.  
+- **[Google Maps Scraper (3,100+ GitHub Stars)](https://github.com/omkarcloud/google-maps-scraper)** — the perfect first step before this scraper: search Google Maps for any niche and location ("dentists in New York") and get every business with its name, address, phone, ratings, and website — then feed those websites straight into this contact scraper to build a complete lead list. The free tier alone pulls up to 100K leads a month.
+- **[G2 Scraper API](https://github.com/omkarcloud/g2-scraper)** — turn any of G2's 240,000+ product pages into clean JSON: 40+ fields including reviews, pricing, ratings, and company details — with this very contact scraper built in for every product's website.
 - **[Capterra Scraper API](https://github.com/omkarcloud/capterra-scraper)** — the same clean JSON, pointed at Capterra: 5-dimension rating breakdowns, pricing plans, integrations, pros/cons for 108,726 products.
 - **[Trustpilot Scraper API](https://github.com/omkarcloud/trustpilot-scraper)** — real-time Trustpilot data for 1.6M+ companies: search companies by keyword, full profiles with rating distributions, every review for any domain. 200 free requests/month.
 
