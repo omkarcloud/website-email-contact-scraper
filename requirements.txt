@@ -1,5 +1,8 @@
 botasaurus
 botasaurus-server
+curl_cffi
+patchright
+psutil
 beautifulsoup4
 lxml
 phonenumbers

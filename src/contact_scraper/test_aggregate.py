@@ -1,12 +1,12 @@
 # Standalone unit checks for aggregate.py (synthetic page records, no network,
-# no fixtures): python3 -m contact_scraper.test_aggregate
+# no fixtures): python3 -m src.contact_scraper.test_aggregate
 
 from .aggregate import OUTPUT_KEYS, build_output, empty_output
 from .html_text import html_to_soup, page_meta
 
 EXPECTED_KEYS = [
     'domain', 'title', 'description',
-    'emails', 'phones', 'phones_uncertain',
+    'emails', 'phones',   # phones_uncertain removed from the product
     'linkedins', 'twitters', 'instagrams', 'facebooks', 'youtubes',
     'tiktoks', 'pinterests', 'discords', 'snapchats', 'threads',
     'telegrams', 'reddits', 'whatsapps',
@@ -21,14 +21,13 @@ LIST_KEYS = EXPECTED_KEYS[3:-1]   # everything after the scalar identity keys
 
 
 def page(url, weight_class='other', is_homepage=False, emails=None,
-         phones=None, phones_uncertain=None, socials=None):
+         phones=None, socials=None):
     return {
         'url': url,
         'is_homepage': is_homepage,
         'weight_class': weight_class,
         'emails': emails or [],
         'phones': phones or [],
-        'phones_uncertain': phones_uncertain or [],
         'socials': socials or [],
     }
 
@@ -78,7 +77,6 @@ def test_three_page_scenario():
     blog = page(
         'https://acme.com/blog/post', 'other',
         emails=[email_hit('info@acme.com')],
-        phones_uncertain=[phone_hit('12345678')],
         socials=[social_hit('twitters', 'https://x.com/randomguy',
                             'randomguy', 'randomguy')])
     contact = page(
@@ -114,17 +112,14 @@ def test_three_page_scenario():
         'https://acme.com/', 'https://acme.com/contact']
     assert out['phones'][0]['is_likely_official'] is True
 
-    # phones_uncertain entries never carry the flag
-    assert out['phones_uncertain'] == [
-        {'value': '12345678', 'sources': ['https://acme.com/blog/post']}]
-    assert set(out['phones_uncertain'][0].keys()) == {'value', 'sources'}
+    # phones_uncertain is suppressed from the output: the blog's loose
+    # '12345678' hit surfaces nowhere
+    assert 'phones_uncertain' not in out
 
     assert out['error'] is None
 
     # exactly one is_likely_official=True per non-empty flagged list
     for key in LIST_KEYS:
-        if key == 'phones_uncertain':
-            continue
         entries = out[key]
         if entries:
             assert [e['is_likely_official'] for e in entries].count(True) == 1
@@ -193,45 +188,7 @@ def test_free_mail_penalty():
     assert [e['is_likely_official'] for e in out['emails']] == [True, False, False]
 
 
-def test_cross_page_uncertain_suppression():
-    # A number validated via tel: on one page must not resurface as uncertain
-    # from another page's prose; its sources merge into the valid entry.
-    records = [
-        page('https://acme.com/contact', weight_class='contact',
-             phones=[phone_hit('+14155552671', from_href=True)]),
-        page('https://acme.com/about', weight_class='about',
-             phones_uncertain=[phone_hit('415.555.2671')]),
-        page('https://acme.com/blog',
-             phones_uncertain=[phone_hit('84591203')]),
-    ]
-    out = build_output('acme.com', records)
-    assert [p['value'] for p in out['phones']] == ['+14155552671']
-    assert set(out['phones'][0]['sources']) == {
-        'https://acme.com/contact', 'https://acme.com/about'}
-    assert [p['value'] for p in out['phones_uncertain']] == ['84591203']
-
-
 def test_phone_semantic_merge():
-    # A bare digit-suffix coincidence must NOT merge two different numbers:
-    # Danish '52 33 12 34' is a suffix of the US +14152331234 but parses to a
-    # different E164 in region US.
-    records = [
-        page('https://a.com/contact', weight_class='contact',
-             phones=[phone_hit('+14152331234', from_href=True)]),
-        page('https://a.com/about', weight_class='about',
-             phones_uncertain=[{'value': '52 33 12 34', 'key': '52331234',
-                                'from_href': False, 'in_footer': False,
-                                'region_match': False}]),
-    ]
-    out = build_output('a.com', records)
-    assert [p['value'] for p in out['phones_uncertain']] == ['52 33 12 34']
-
-    # ...while the genuine Danish owner of that number DOES merge
-    records[0]['phones'] = [phone_hit('+4552331234', from_href=True)]
-    out = build_output('a.com', records)
-    assert out['phones_uncertain'] == []
-    assert len(out['phones'][0]['sources']) == 2
-
     # national tel: digits entry and the E164 form of the same number fold
     # into one E164-valued entry across pages
     records = [
@@ -282,7 +239,6 @@ def main():
     test_footer_social_outranks_blog_social()
     test_sources_capped_at_ten()
     test_free_mail_penalty()
-    test_cross_page_uncertain_suppression()
     test_phone_semantic_merge()
     test_tie_break_first_seen()
 

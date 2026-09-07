@@ -1,4 +1,6 @@
-# Phone extraction + valid/uncertain classification (plan section 3.3).
+# Phone extraction (plan section 3.3). Only validated numbers are kept:
+# text candidates that fail validation are dropped (a phones_uncertain
+# bucket existed once but is not part of the product any more).
 #
 # Candidates come from tel:-style hrefs, extra href-grade strings (e.g. wa.me
 # numbers fed in by the socials extractor) and page text (the wide phone
@@ -9,7 +11,7 @@
 # (e.g. an 8-digit order number parses as a "valid" DE number). So the
 # region-parse fallback promotes a candidate to "phones" only when it is
 # href-grade (tel: is explicit intent) or was independently confirmed by
-# PhoneNumberMatcher; other region-parsed text matches stay uncertain.
+# PhoneNumberMatcher; other region-parsed text matches are dropped.
 
 import re
 from urllib.parse import unquote
@@ -42,25 +44,8 @@ CCTLD_REGIONS = {
     'us': 'US',
 }
 
-# 2020, 2019-2020, 2019 2020, 2019.2020 - copyright/date-range shapes.
-YEAR_RANGE_REGEX = re.compile(r'^(19|20)\d{2}([ .-](19|20)\d{2})?$')
-
-# 52.519060 - decimal numbers (map coordinates, prices, versions) that the
-# dotted-phone patterns match; real dotted phones have short fractions.
-DECIMAL_NUMBER_REGEX = re.compile(r'^\d{1,3}\.\d{4,}$')
-
-# 49.36.137.230 - IPv4 addresses match the dotted phone patterns.
-IP_ADDRESS_REGEX = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
-
-# "1200 2015" - product spec + model year (bike/car shops list dozens).
-PRODUCT_YEAR_REGEX = re.compile(r'^\d{2,4} (19|20)\d{2}$')
-
-# 336359125457 - bare unformatted 12+ digit runs are listing/tracking ids;
-# nobody writes a phone number that way without a + prefix.
-BARE_LONG_DIGITS_REGEX = re.compile(r'^\d{12,15}$')
-
 # 31.07.2026 / 12/11/2020 - blanked from the text BEFORE scanning: they both
-# pollute phones_uncertain and can even parse into "valid" phones
+# can even parse into "valid" phones
 # (a German "Stand: 31.07.2026" once produced +495082026).
 DOTTED_DATE_REGEX = re.compile(r'(?<!\d)\d{1,2}[./]\d{1,2}[./](19|20)\d{2}(?!\d)')
 
@@ -77,9 +62,6 @@ REGISTRY_CONTEXT_REGEX = re.compile(
 
 def _registry_context(text, start):
     return bool(REGISTRY_CONTEXT_REGEX.search(text[max(0, start - 28):start]))
-
-# 070000002 / 00001246 - a real trunk prefix is a single zero.
-LEADING_ZEROS_REGEX = re.compile(r'^0{3,}')
 
 
 def region_from_domain(domain):
@@ -144,7 +126,6 @@ def _candidates(page, region, extra_candidates):
 
 def extract_phones(page, region=None, extra_candidates=()):
     phones = {}     # key -> hit, insertion-ordered
-    uncertain = {}  # key -> hit
     suppress = {}   # digit variants of valid phones -> phones key
 
     def add(bucket, key, value, cand, region_match):
@@ -188,7 +169,7 @@ def extract_phones(page, region=None, extra_candidates=()):
             add(phones, e164, e164, cand,
                 phonenumbers.region_code_for_number(number) == region)
             # National-format digit variants let a bare local text form of the
-            # same number merge into this entry instead of going uncertain.
+            # same number merge into this entry instead of being dropped.
             for variant in variants:
                 suppress[variant] = e164
             continue
@@ -207,34 +188,4 @@ def extract_phones(page, region=None, extra_candidates=()):
                 suppress.setdefault(key, key)
             continue
 
-        collapsed = re.sub(r'\s+', ' ', value).strip()
-        digits = _digits_only(collapsed)
-        if len(digits) < PHONE_MIN_DIGITS or len(digits) > 15:
-            continue
-        if YEAR_RANGE_REGEX.fullmatch(collapsed):
-            continue
-        if DECIMAL_NUMBER_REGEX.fullmatch(collapsed):
-            continue
-        if IP_ADDRESS_REGEX.fullmatch(collapsed):
-            continue
-        if PRODUCT_YEAR_REGEX.fullmatch(collapsed):
-            continue
-        if LEADING_ZEROS_REGEX.match(collapsed):
-            continue
-        if BARE_LONG_DIGITS_REGEX.fullmatch(collapsed):
-            continue
-        if len(set(digits)) == 1:
-            continue
-        add(uncertain, digits, collapsed, cand, False)
-
-    # A number valid in phones must not also appear in phones_uncertain:
-    # merge (OR flags) any uncertain entry that is a digit-variant of one.
-    for key in list(uncertain):
-        target = suppress.get(key)
-        if target is not None and target in phones:
-            hit = uncertain.pop(key)
-            phones[target]['from_href'] = phones[target]['from_href'] or hit['from_href']
-            phones[target]['in_footer'] = phones[target]['in_footer'] or hit['in_footer']
-
-    return {'phones': list(phones.values()),
-            'phones_uncertain': list(uncertain.values())}
+    return list(phones.values())

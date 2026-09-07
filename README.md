@@ -152,7 +152,7 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-Your browser opens `http://localhost:3000`. Enter websites, hit **Run**, filter results ("Has Emails", "Has LinkedIn"), and export CSV/JSON/Excel — without writing a line of code.
+Your browser opens `http://localhost:3000`. Enter websites, pick a crawl mode, hit **Run**, filter results ("Has Emails", "Has LinkedIn"), and export CSV/JSON/Excel — without writing a line of code.
 
 Prefer the terminal? Edit the website list in `main.py` and run:
 ```bash
@@ -166,9 +166,12 @@ Results are saved to `output/scrape_contacts.json`.
 from src.contact_scraper import scrape_contacts
 
 results = scrape_contacts(["vercel.com", "stripe.com", "shopify.com"])
+
+# Pick the crawl depth per website: "homepage", "key_pages" or "deep"
+results = scrape_contacts([{"query": "vercel.com", "mode": "deep"}])
 ```
 
-Websites are scraped in parallel (5 at a time), and every result has the same fixed schema — unreachable or broken sites return the schema with an `error` string instead of raising, so batch runs never die halfway.
+Each website's pages are fetched concurrently, and every result has the same fixed schema — unreachable or broken sites return the schema with an `error` string instead of raising, so batch runs never die halfway.
 
 ### 🐳 Docker
 
@@ -222,7 +225,7 @@ Accepts a bare domain (`vercel.com`) or a full URL (`https://vercel.com/`). Opti
 
 | Parameter | Description |
 |-----------|-------------|
-| `mode` | Crawl depth: `homepage` (scan just the homepage), `key_pages` (default — also crawl the site's top contact-like pages, up to 7 pages), `deep` (crawl the whole site, up to 20 pages) |
+| `mode` | Crawl depth: `homepage` (scan just the homepage), `key_pages` (also crawl the site's top contact-like pages, up to 7 pages), `deep` (crawl the whole site, up to 20 pages) |
 | `recommend_sales_email` | When `true`, an AI picks the best email for cold sales outreach and adds it as `best_sales_email`. Requires `your_product_description` |
 | `your_product_description` | A short description of YOUR product, used to judge which inbox fits it — e.g. `We sell an AI-powered lead enrichment API for sales teams.` |
 
@@ -427,7 +430,7 @@ Every contact result — from the API and the open source scraper alike — cont
 | `emails` | `[{value, sources, is_likely_official}]`, best first |
 | `phones` | Validated numbers in E.164 (`+14155551234`) format |
 | `linkedins`, `twitters`, `instagrams`, `facebooks`, `youtubes`, `tiktoks`, `pinterests`, `discords`, `snapchats`, `threads`, `telegrams`, `reddits`, `whatsapps`, `githubs`, `blueskys`, `mediums`, `calendlys` | Social profile URLs, one list per platform |
-| `technologies` | `[{name, versions, categories}]` detected on the homepage |
+| `technologies` | `[{name, versions, categories}]` detected on the homepage and key pages (contact, careers, blog) |
 | `error` | `null` on success, or a short reason (`"dns: no such host: ..."`) |
 
 With `recommend_sales_email=true`, the API also adds `best_sales_email` — the AI's pick for cold outreach given your product description.
@@ -449,7 +452,7 @@ Rather not pay at all? Run the [open source scraper](#-run-it-yourself--free--op
 
 ## 🧠 How It Works
 
-1. **Crawl** — starts at the homepage and follows same-domain links in priority order: `/contact`, `/impressum`, `/about`, `/support` pages first. `key_pages` mode (the default) stops at the site's 7 most promising pages; `deep` mode goes up to 20. Crawling exits early once emails and phones have been found and no promising pages remain.
+1. **Crawl** — starts at the homepage and follows same-domain links in priority order: `/contact`, `/impressum`, `/about`, `/careers`, `/blog` pages first, fetched in concurrent waves. `key_pages` mode stops at the site's 7 most promising pages; `deep` mode goes up to 20 pages and 2 levels deep.
 2. **Escalate** — pages are fetched with fast HTTP requests. If the site blocks bots or renders content with JavaScript, the crawler automatically switches to a real Chrome browser for the rest of that site (and reuses the earned cookies to keep subsequent pages fast).
 3. **Extract** — emails (including `mailto:`, Cloudflare-encoded, and obfuscated forms like `name [at] company [dot] com`), phones via libphonenumber with the site's region, social links via battle-tested per-platform regexes ported from the Apify SDK, plus JSON-LD structured data.
 4. **Rank** — findings are deduped across pages and scored by prominence (homepage/footer/contact-page presence) and similarity to the site's domain. The top entry of each list is flagged `is_likely_official`.
@@ -490,7 +493,7 @@ You still get the full schema: all lists empty and `error` holding a short reaso
 
 ### How many websites can I scrape?
 
-With the open source scraper there are no artificial limits — it's your machine, and websites are processed 5 at a time in parallel. With the API, see [Pricing](#pricing).
+With the open source scraper there are no artificial limits — it's your machine, and each website's pages are fetched concurrently. With the API, see [Pricing](#pricing).
 
 ### I found a website where it misses contacts. What should I do?
 

@@ -24,11 +24,47 @@ _HEX_RUN_RE = re.compile(r'[0-9a-f]{24}', re.IGNORECASE)
 _TLD_RE = re.compile(r'[a-z]{2,24}')
 
 # Matched as domain suffixes (exact or ".<blocked>"), which covers the
-# registrable-domain intent: foo@mail.example.com drops too.
+# registrable-domain intent: foo@mail.example.com drops too. The dummy
+# domains mirror js-scraper's isPlaceholderEmail (enrichment/orchestrator.ts)
+# so both pipelines drop the same addresses. email.com is a real provider but
+# is overwhelmingly used as a placeholder on contact forms.
 _BLOCKED_DOMAINS = (
-    'example.com', 'domain.com', 'email.com', 'yourdomain.com',
-    'mysite.com', 'company.com', 'sentry.io', 'sentry-next.wixpress.com',
+    'example.com', 'example.org', 'example.net',
+    'test.com', 'test.org', 'test.net',
+    'domain.com', 'email.com', 'yourdomain.com', 'yourcompany.com',
+    'mycompany.com', 'mysite.com', 'company.com', 'acme.com', 'localhost',
+    'sentry.io', 'sentry-next.wixpress.com',
 )
+
+# Placeholder / dummy local parts ("youremail@…", "firstname.lastname@…",
+# "test@…", "noreply@…"): template text and form hints that appear in page
+# HTML as if they were addresses. Ported from js-scraper's isPlaceholderEmail
+# so the native contact scraper drops the same set. Matching is EXACT on the
+# local part (plus a few "todo-"-style prefixes) so real addresses that merely
+# contain one of these words - firstnamelastname@acme-test.com, marketingplaceholder@acme-test.com
+# - survive.
+_PLACEHOLDER_LOCALS = frozenset((
+    'youremail', 'your.email', 'your_email', 'your-email',
+    'yourname', 'your.name', 'your_name', 'your-name',
+    'name', 'firstname', 'lastname', 'firstname.lastname', 'first.last',
+    'email', 'mail', 'user', 'username', 'user.email',
+    'example', 'sample', 'test', 'dummy', 'placeholder', 'foo', 'bar',
+    'todo',
+    'noreply', 'no-reply', 'no.reply', 'donotreply', 'do-not-reply',
+))
+_PLACEHOLDER_PREFIXES = ('todo-', 'todo_', 'todo.', 'example-', 'test-', 'sample-')
+
+
+def is_placeholder_email(value):
+    """True when the address is an obvious placeholder/dummy by its local
+    part (see _PLACEHOLDER_LOCALS) or its domain (see _BLOCKED_DOMAINS)."""
+    local, at, domain = value.lower().strip().rpartition('@')
+    if not at or not local:
+        return True
+    if local in _PLACEHOLDER_LOCALS or local.startswith(_PLACEHOLDER_PREFIXES):
+        return True
+    return any(domain == blocked or domain.endswith('.' + blocked)
+               for blocked in _BLOCKED_DOMAINS)
 
 _LOOKALIKE_TRANSLATION = str.maketrans({
     '＠': '@',  # fullwidth commercial at
@@ -83,8 +119,7 @@ def _is_false_positive(value):
     local, _, domain = value.rpartition('@')
     if len(local) > 64 or _HEX_RUN_RE.search(local):
         return True
-    if any(domain == blocked or domain.endswith('.' + blocked)
-           for blocked in _BLOCKED_DOMAINS):
+    if is_placeholder_email(value):
         return True
     if not _TLD_RE.fullmatch(domain.rsplit('.', 1)[-1]):
         return True

@@ -6,6 +6,8 @@
 # is_likely_official=True.
 
 import difflib
+import functools
+import os
 import re
 
 import phonenumbers
@@ -28,8 +30,10 @@ FREE_MAIL_DOMAINS = {'web.de'}
 
 # dict order of PLATFORM_REGEX_STRINGS is the required output-key order
 PLATFORM_KEYS = list(PLATFORM_REGEX_STRINGS)
+# phones_uncertain was removed from the product: uncertain text matches
+# are dropped at extraction time and never reach aggregation.
 OUTPUT_KEYS = (['domain', 'title', 'description',
-                'emails', 'phones', 'phones_uncertain']
+                'emails', 'phones']
                + PLATFORM_KEYS + ['technologies'])
 # First list-valued key in OUTPUT_KEYS; everything before it is scalar.
 _FIRST_LIST_KEY = 3
@@ -124,6 +128,15 @@ def _social_bonus(handle, domain_label):
     return 0
 
 
+# Cap on emitted entries per list. A directory-style site (state-by-state
+# carrier rosters, staff phone books) yields thousands of numbers that belong
+# to OTHER businesses - one such crawl produced 11,740 phones and a 1.4MB
+# record. Entries are emitted in prominence order, so the site's own contact
+# details are always at the front; the tail is other people's data that
+# bloats every cached record and API response.
+MAX_ENTRIES = 100
+
+
 def _finalize(entries, bonus_fn, flagged=True):
     # score BEFORE capping sources, so heavily-repeated entries keep their
     # full weight even though only 10 source URLs are emitted
@@ -131,7 +144,7 @@ def _finalize(entries, bonus_fn, flagged=True):
         ((_prominence_score(e) + bonus_fn(e), i, e) for i, e in enumerate(entries)),
         key=lambda t: (-t[0], t[1]))
     out = []
-    for rank, (_score, _first_seen, entry) in enumerate(scored):
+    for rank, (_score, _first_seen, entry) in enumerate(scored[:MAX_ENTRIES]):
         # stable sort: equal weights keep first-seen order
         pages = sorted(entry['pages'], key=lambda p: -p['weight'])
         item = {
@@ -168,6 +181,7 @@ def _same_number_textual(vdigits, digits):
     return vdigits.endswith(digits) or digits.endswith(vdigits)
 
 
+@functools.lru_cache(maxsize=4096)
 def _parse_e164(value, region=None):
     try:
         n = phonenumbers.parse(value, region)
@@ -176,17 +190,30 @@ def _parse_e164(value, region=None):
         return None
 
 
+_PARSE_FAILED = 'PARSE_FAILED'  # sentinel: parse raised (region None is a
+                                # DIFFERENT, valid outcome the caller keeps)
+
+
+@functools.lru_cache(maxsize=4096)
+def _e164_region(value):
+    # Region of a +CC value (may legitimately be None), or _PARSE_FAILED when
+    # it will not parse at all. Cached: on directory-style pages the same
+    # valid number is compared against thousands of candidate entries.
+    try:
+        return phonenumbers.region_code_for_number(phonenumbers.parse(value, None))
+    except phonenumbers.NumberParseException:
+        return _PARSE_FAILED
+
+
 def _same_number(valid, entry):
-    # Semantic-first: when the valid side is E.164, the uncertain/national side
+    # Semantic-first: when the valid side is E.164, the national-form side
     # must parse (in the valid number's region) to the SAME E.164.
     vdigits = re.sub(r'\D', '', valid['value'])
     raw_digits = re.sub(r'\D', '', entry['value'])
     digits = raw_digits.lstrip('0')
     if valid['value'].startswith('+'):
-        try:
-            vregion = phonenumbers.region_code_for_number(
-                phonenumbers.parse(valid['value'], None))
-        except phonenumbers.NumberParseException:
+        vregion = _e164_region(valid['value'])
+        if vregion is _PARSE_FAILED:
             return _same_number_textual(vdigits, digits)
         parsed = _parse_e164(entry['value'], vregion)
         if parsed is not None and parsed == valid['value']:
@@ -208,29 +235,80 @@ def _same_number(valid, entry):
     return _same_number_textual(vdigits, digits)
 
 
-def _suppress_validated(valid_entries, uncertain_entries):
-    # Cross-page dedupe: a number already validated anywhere on the site must
-    # not resurface as uncertain from another page's prose.
-    kept = []
-    for entry in uncertain_entries:
-        match = next((v for v in valid_entries if _same_number(v, entry)), None)
-        if match is None:
-            kept.append(entry)
-        else:
-            _merge_entry_into(match, entry)
-    return kept
+# Every _same_number probe costs phonenumbers.parse() calls (pure-Python,
+# ~1ms). Directory-style pages (state-by-state carrier listings, BPO phone
+# rosters) yield THOUSANDS of valid numbers, and the natural
+# "compare each entry against every valid" loop goes quadratic: millions of
+# parses = hours of GIL-pegged CPU (Sept 2026 incident). In the pod that starved liveness probes
+# (restart) while other threads kept stacking crawls (OOM). So candidate
+# valids are pre-filtered through a digit-window index - every _same_number
+# True-case requires the two numbers to share a contiguous >=6-digit run
+# (E.164 same-NSN, >=6-digit prefix fragment, >=7-digit substring/suffix) or
+# be digit-identical - plus a hard comparison budget as the backstop.
+
+_WINDOW = 6
+_MAX_CANDIDATES = 60          # per entry, after index lookup
+_COMPARISON_BUDGET = 150_000  # _same_number calls per _match_against call
+
+
+def _digit_windows(digits):
+    if len(digits) <= _WINDOW:
+        return (digits,) if digits else ()
+    return tuple(digits[i:i + _WINDOW]
+                 for i in range(len(digits) - _WINDOW + 1))
+
+
+def _match_against(valid_entries, entries):
+    """Yield (entry, matching-valid-or-None) preserving valid_entries order
+    semantics of `next(v for v in valid_entries if _same_number(v, entry))`."""
+    index = {}
+    for i, valid in enumerate(valid_entries):
+        vdigits = re.sub(r'\D', '', valid['value'])
+        for win in set(_digit_windows(vdigits)) | {vdigits}:
+            index.setdefault(win, []).append((i, valid))
+
+    budget = _COMPARISON_BUDGET
+    for entry in entries:
+        raw = re.sub(r'\D', '', entry['value'])
+        digits = raw.lstrip('0')
+        # Probe with BOTH raw and zero-stripped forms: the textual/E.164
+        # paths compare stripped digits, but the embedded-fragment rule
+        # matches raw digits (leading zeros intact) against vdigits.
+        probes = set(_digit_windows(digits)) | set(_digit_windows(raw))
+        probes |= {digits, raw}
+        seen, candidates = set(), []
+        for win in probes:
+            for pair in index.get(win, ()):
+                if pair[0] not in seen:
+                    seen.add(pair[0])
+                    candidates.append(pair)
+        candidates.sort()
+        match = None
+        for _, valid in candidates[:_MAX_CANDIDATES]:
+            if budget <= 0:
+                break
+            budget -= 1
+            if _same_number(valid, entry):
+                match = valid
+                break
+        yield entry, match
 
 
 def _fold_valid_variants(valid_entries):
     # A national tel:-form (digits key) and the E.164 form of the SAME number
     # can arrive from different pages; keep the E.164 entry as the survivor.
     e164_entries = [e for e in valid_entries if e['value'].startswith('+')]
+    national = [e for e in valid_entries if not e['value'].startswith('+')]
+    folded = {}  # id(entry) -> matching e164 entry
+    for entry, match in _match_against(e164_entries, national):
+        if match is not None:
+            folded[id(entry)] = match
     kept = []
     for entry in valid_entries:
         if entry['value'].startswith('+'):
             kept.append(entry)
             continue
-        match = next((v for v in e164_entries if _same_number(v, entry)), None)
+        match = folded.get(id(entry))
         if match is None:
             kept.append(entry)
         else:
@@ -267,10 +345,7 @@ def build_output(domain, page_records, technologies=None,
         _merge(_hits(page_records, 'emails'), 'value'),
         lambda e: _email_bonus(e['value'], site_domain))
     valid_phones = _fold_valid_variants(_merge(_hits(page_records, 'phones'), 'key'))
-    uncertain_phones = _suppress_validated(
-        valid_phones, _merge(_hits(page_records, 'phones_uncertain'), 'key'))
     out['phones'] = _finalize(valid_phones, _phone_bonus)
-    out['phones_uncertain'] = _finalize(uncertain_phones, _phone_bonus, flagged=False)
 
     per_platform = {key: [] for key in PLATFORM_KEYS}
     for page in page_records:

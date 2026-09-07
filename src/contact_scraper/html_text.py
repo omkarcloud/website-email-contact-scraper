@@ -41,7 +41,6 @@ try:
 except ImportError:
     _SOUP_PARSER = 'html.parser'
 
-
 def html_to_soup(html):
     return BeautifulSoup(html, _SOUP_PARSER)
 

@@ -13,6 +13,24 @@ Server.configure(
     },
 )
 
+CRAWL_MODES = ("homepage", "key_pages", "deep")
+DEFAULT_MODE = "key_pages"
+
+
+def _split_task(data):
+    # One task per website. Each item is the {'query', 'mode'} dict that
+    # scrape_contacts accepts directly - the server passes it verbatim as the
+    # scraper's argument, and a dict is the only way to carry the crawl mode
+    # through a botasaurus @task.
+    mode = (data.get("mode") or DEFAULT_MODE).strip().lower()
+    if mode not in CRAWL_MODES:
+        mode = DEFAULT_MODE
+    return [
+        {"query": website.strip(), "mode": mode}
+        for website in data["websites"]
+        if website and website.strip()
+    ]
+
 
 def _join_values(key):
     def map_values(record):
@@ -61,9 +79,9 @@ email_list_view = View(
 Server.add_scraper(
     scrape_contacts,
     display_name="Website Contact Scraper",
-    get_task_name=lambda website: website,
+    get_task_name=lambda item: item["query"],
     create_all_task=True,
-    split_task=lambda data: [w.strip() for w in data["websites"] if w and w.strip()],
+    split_task=_split_task,
     filters=[
         filters.SearchTextInput("domain"),
         filters.IsTruthyCheckbox("emails", label="Has Emails"),

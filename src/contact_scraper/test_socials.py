@@ -1,4 +1,4 @@
-# Standalone unit tests (no network): python3 -m contact_scraper.test_socials
+# Standalone unit tests (no network): python3 -m src.contact_scraper.test_socials
 
 import os
 

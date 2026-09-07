@@ -1,7 +1,18 @@
 """Chrome pool manager for the contact scraper.
 
-The "contact" pool holds warmed Chrome drivers shared by every crawl:
+Two pools of patchright (patched Playwright) Chrome drivers are shared by
+every crawl (CHROME_POOLS below):
 
+  "contact"      headed real Chrome, full fidelity — challenge-blocked sites
+                 (Cloudflare "Just a moment...", PerimeterX, Akamai, ...).
+                 The challenge cookies earned by the first full page load
+                 live on the leased driver, so a crawl holds ONE driver
+                 until it ends.
+  "contact-csr"  headless Chrome with image/media/font/stylesheet requests
+                 blocked — client-side-rendered apps, where there is no
+                 anti-bot to fool and subresources are dead weight.
+
+Per pool:
   min   warmed browsers kept alive at ALL times. "Alive" counts ready + leased
         + warming — a leased browser is alive and warm, and a warming one is
         being brought alive (requiring ready >= min would make min drivers
@@ -16,20 +27,18 @@ Request lifecycle (`acquire(key)` / `with_chrome(key)`):
   - If none is ready and the pool is below max, spawn a BACKGROUND warmer and
     wait for whichever comes first: a busy driver being released or the warm
     completing. Request threads never construct drivers inline.
-  - On success the driver returns to the FIFO tail. On failure it is closed
-    and discarded; the next acquire (or `ensure_min` when min > 0) warms a
-    replacement, so a crashed Chrome can never re-enter the ready pool.
+  - On success the driver returns to the FIFO tail (parked on about:blank so
+    an idle driver never pins a rendered page's memory). On failure it is
+    closed and discarded; the next acquire (or `ensure_min` when min > 0)
+    warms a replacement, so a crashed Chrome can never re-enter the ready
+    pool.
 
-Warm-up is per-pool (register_warmup) and must prove the driver end-to-end
-with a real navigation. A driver only enters the ready pool if the warm-up
-didn't raise.
-
-Drivers are created through botasaurus's own Driver class with the same
-options the @browser decorator would pass, so fingerprint/proxy behavior is
-unchanged. Construction is serialized by a global lock (first-time display/
-profile setup races otherwise); navigation + validation run concurrently.
+Warm-up is per-pool (register_warmup); a driver only enters the ready pool if
+the warm-up didn't raise. Construction is serialized by a global lock
+(first-time display/profile setup races otherwise).
 
 Env knobs: CONTACT_SCRAPER_CHROMES_MIN (0), CONTACT_SCRAPER_CHROMES_MAX (2),
+CONTACT_SCRAPER_CSR_CHROMES_MIN (0), CONTACT_SCRAPER_CSR_CHROMES_MAX (2),
 CONTACT_SCRAPER_PROXY (direct connection when unset).
 """
 import itertools
@@ -40,23 +49,55 @@ from collections import deque
 from contextlib import contextmanager
 from traceback import format_exc
 
-from botasaurus.decorators_common import evaluate_proxy, save_error_logs
-from botasaurus.env import IS_DOCKER
-from botasaurus_driver.driver import Driver
+from botasaurus.decorators_common import save_error_logs
+
+from . import patchright_driver
+from .patchright_driver import PatchrightDriver
+
+# proxy None = direct connection: the crawler fetches arbitrary small-business
+# sites, where residential exits buy nothing. Set CONTACT_SCRAPER_PROXY
+# (http://user:pass@host:port) to route every browser through a proxy.
+_PROXY = os.environ.get("CONTACT_SCRAPER_PROXY") or None
 
 CHROME_POOLS = {
+    # Headed patchright Chrome (headless Chrome is exactly what Cloudflare
+    # flags) for challenge-blocked sites. min=0 -> lazy: no Chrome exists
+    # until a crawl's first blocked-mode fetch. Set CONTACT_SCRAPER_CHROMES_MIN=1
+    # to keep one pre-warmed. max bounds concurrent blocked-mode crawls —
+    # pure-requests crawls never touch the pool.
     "contact": {
-        # min=0 -> lazy: no Chrome exists until a crawl's first browser-mode
-        # fetch. Set CONTACT_SCRAPER_CHROMES_MIN=1 to keep one pre-warmed.
         "min": int(os.environ.get("CONTACT_SCRAPER_CHROMES_MIN", 0)),
         "max": int(os.environ.get("CONTACT_SCRAPER_CHROMES_MAX", 2)),
-        # None means direct connection: crawling arbitrary small sites
-        # through residential exits buys nothing.
-        "proxy": os.environ.get("CONTACT_SCRAPER_PROXY") or None,
+        "proxy": _PROXY,
+        "backend": "patchright",
+        # Park released drivers on about:blank so a pooled idle driver never
+        # pins the last rendered page's renderer memory.
+        "reset_on_release": True,
+    },
+    # Dedicated CSR renderer: headless patchright Chrome with image/media/
+    # font/stylesheet requests blocked (JS/XHR still load, so client-side
+    # apps render fast and cheap). Challenge-blocked sites never land here —
+    # they use the headed "contact" pool.
+    "contact-csr": {
+        "min": int(os.environ.get("CONTACT_SCRAPER_CSR_CHROMES_MIN", 0)),
+        "max": int(os.environ.get("CONTACT_SCRAPER_CSR_CHROMES_MAX", 2)),
+        "proxy": _PROXY,
+        "backend": "patchright",
+        "headless": True,
+        # "image" and "font" here are honored via Chrome flags
+        # (--blink-settings=imagesEnabled=false, --disable-remote-fonts: never
+        # requested at all), NOT route interception - aborting image requests
+        # wedged some SPAs into stalling every later page op on the driver.
+        # "media"/"stylesheet" are aborted by a narrow URL-pattern route so
+        # only those requests ever reach Python. See PatchrightDriver.
+        # WAF-detectable, so safe only because this pool never faces anti-bot
+        # sites.
+        "block_resources": ["image", "media", "font", "stylesheet"],
+        "reset_on_release": True,
     },
 }
 
-MAX_RETRIES = 3          # run_with_chrome attempts before giving up
+MAX_RETRIES = 3                # run_with_chrome attempts before giving up
 WARMUP_ATTEMPTS = 3            # create+warm+validate tries per warmer thread
 WARMUP_BACKOFF = [5, 15, 30]   # seconds between warmer attempts
 ACQUIRE_TIMEOUT = 90           # seconds a request waits for a Chrome
@@ -79,14 +120,25 @@ _warmups = {}
 
 
 def register_warmup(key, fn):
-    """Register the warm-up (a real validation navigation) run once on every new
-    driver of a pool. The driver joins the ready pool only if fn didn't raise."""
+    """Register the warm-up run once on every new driver of a pool. The driver
+    joins the ready pool only if fn didn't raise."""
     _warmups[key] = fn
 
 
-# Serializes Driver(...) construction only (~seconds): two first-time creations
+# Serializes driver construction only (~seconds): two first-time creations
 # race on display/profile setup. Never held together with a pool condition.
 _create_lock = threading.Lock()
+
+
+@contextmanager
+def create_scope():
+    """Hold the driver-construction lock around an AD-HOC PatchrightDriver
+    built outside a pool. The janitor's orphan sweep runs under this same
+    lock, so holding it means a half-launched ad-hoc browser — whose
+    processes no pool driver owns yet — is never mistaken for an orphan and
+    reaped mid-launch."""
+    with _create_lock:
+        yield
 
 
 class ChromePool:
@@ -115,7 +167,7 @@ class ChromePool:
     def _total_locked(self):
         return len(self._ready) + self.leased + self.warming
 
-    def acquire(self, timeout=None) -> Driver:
+    def acquire(self, timeout=None):
         timeout = ACQUIRE_TIMEOUT if timeout is None else timeout
         deadline = (time.monotonic() + timeout) if timeout else None
         with self._cond:
@@ -140,6 +192,14 @@ class ChromePool:
                     self.queued -= 1
 
     def release(self, driver, ok):
+        if ok and getattr(driver, "reset_on_release", False):
+            # Park the driver on about:blank so a pooled idle driver never
+            # pins a huge rendered page's memory. A driver that cannot even
+            # navigate to about:blank is wedged - recycle it instead.
+            try:
+                driver.blank()
+            except Exception:
+                ok = False
         if not ok:
             # Close BEFORE decrementing leased: the OS Chrome count stays within
             # the accounted total, so a replacement warmer can't overlap the
@@ -209,17 +269,17 @@ def _close_quietly(driver):
 
 def _build_driver(settings):
     # An explicit "proxy": None (the default) means direct connection.
-    driver = Driver(
-        headless=False,
-        proxy=evaluate_proxy(settings.get("proxy")),
-        block_images=True,
-        lang=settings.get("lang", "en-US"),
-        wait_for_complete_page_load=False,
-        enable_xvfb_virtual_display=IS_DOCKER,
-    )
-    if settings.get("locale") or settings.get("timezone"):
-        driver.set_locale_and_timezone(settings.get("locale"), settings.get("timezone"))
-    return driver
+    # headless + block_resources are the contact-csr renderer's knobs (no
+    # anti-bot there); the headed "contact" pool leaves both off.
+    proxy = settings.get("proxy")
+    if settings.get("backend") == "patchright":
+        return PatchrightDriver(proxy,
+                                headless=bool(settings.get("headless")),
+                                block_resources=settings.get("block_resources"),
+                                reset_on_release=bool(settings.get("reset_on_release")),
+                                browserforge=bool(settings.get("browserforge")),
+                                timezone=settings.get("timezone"))
+    raise ValueError(f"unsupported pool backend {settings.get('backend')!r}")
 
 
 def _warmer_main(pool):
@@ -249,8 +309,9 @@ def _warmer_main(pool):
                 print(f"{pool.key}: warm-up attempt {attempt}/{WARMUP_ATTEMPTS} "
                       f"failed: {e}")
                 try:
-                    save_error_logs(format_exc(),
-                                    driver if isinstance(driver, Driver) else None)
+                    # save_error_logs screenshots via the botasaurus API —
+                    # patchright drivers are passed as None, text-only.
+                    save_error_logs(format_exc(), None)
                 except Exception:
                     pass
                 if driver is not None:
@@ -310,8 +371,7 @@ def run_with_chrome(key, fn, data, retries=None):
                 except ContentError:
                     raise
                 except Exception:
-                    save_error_logs(format_exc(),
-                                    driver if isinstance(driver, Driver) else None)
+                    save_error_logs(format_exc(), None)
                     raise
         except (ContentError, ChromeUnavailable):
             raise
@@ -340,6 +400,12 @@ def wait_until_ready(timeout):
             continue
         with pool._cond:
             while not (pool._ready or pool.leased):
+                if pool.warming == 0:
+                    # Every warmer exhausted its attempts and nothing is
+                    # ready: fail fast instead of idling out the timeout.
+                    print(f"{key}: all warm-up attempts failed; "
+                          "not waiting further.")
+                    return False
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return False
@@ -352,8 +418,9 @@ def all_serviceable():
 
 
 def start_janitor():
-    """Idempotent: one daemon thread re-asserting every pool's min floor.
-    Only useful when CONTACT_SCRAPER_CHROMES_MIN > 0."""
+    """Idempotent: one daemon thread re-asserting every pool's min floor and
+    reaping orphaned browser process trees. Not started automatically —
+    only useful for long-lived servers with CONTACT_SCRAPER_CHROMES_MIN > 0."""
     global _janitor_started
     with _pools_mutex:
         if _janitor_started:
@@ -368,6 +435,15 @@ def start_janitor():
                     ensure_min(key)
                 except Exception as e:
                     print(f"janitor: ensure_min({key}) failed: {e}")
+            try:
+                # Under _create_lock: a patchright launch in progress has
+                # spawned processes no driver owns yet — holding the
+                # construction lock means the sweep never mistakes a
+                # half-launched browser for an orphan.
+                with _create_lock:
+                    patchright_driver.kill_orphan_browsers()
+            except Exception as e:
+                print(f"janitor: orphan sweep failed: {e}")
 
     threading.Thread(target=_janitor_main, daemon=True, name="pool-janitor").start()
 

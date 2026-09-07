@@ -1,9 +1,10 @@
 # Standalone unit tests for extract_emails (zero network):
-#   python3 -m contact_scraper.test_emails
+#   python3 -m src.contact_scraper.test_emails
 
 import os
 
-from .extract_emails import decode_cfemail, deobfuscate_text, extract_emails
+from .extract_emails import (decode_cfemail, deobfuscate_text, extract_emails,
+                             is_placeholder_email)
 from .html_text import build_page
 
 _FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures')
@@ -94,22 +95,49 @@ def test_hostile_pages():
     # 50k-char digit/word runs used to take ~30s per regex pass; the long-token
     # guard must keep extraction fast without losing nearby real contacts.
     hostile = ('<html><body><p>' + '1' * 50000 + ' ' + 'a' * 50000 + '@ '
-               + '12.34.' * 8000 + '</p><p>mail hello@acme.com</p></body></html>')
+               + '12.34.' * 8000 + '</p><p>mail hello@acme-test.com</p></body></html>')
     started = time.monotonic()
     hits = extract_emails(build_page('https://acme.com/', hostile))
     assert time.monotonic() - started < 5
-    assert any(h['value'] == 'hello@acme.com' for h in hits)
+    assert any(h['value'] == 'hello@acme-test.com' for h in hits)
 
     # Malformed pages nest thousands of tags deep; must not RecursionError.
-    deep = ('<html><body>' + '<div>' * 3000 + 'hello@acme.com'
+    deep = ('<html><body>' + '<div>' * 3000 + 'hello@acme-test.com'
             + '</div>' * 3000 + '</body></html>')
     hits = extract_emails(build_page('https://acme.com/', deep))
-    assert any(h['value'] == 'hello@acme.com' for h in hits)
+    assert any(h['value'] == 'hello@acme-test.com' for h in hits)
+
+
+def test_placeholder_emails():
+    # Same cases js-scraper's isPlaceholderEmail drops (enrichment/orchestrator.ts).
+    for dropped in (
+        'youremail@acme-test.com', 'Your.Email@acme-test.com', 'your_name@acme-test.com',
+        'firstname.lastname@acme-test.com', 'first.last@acme-test.com', 'name@acme-test.com',
+        'firstname@acme-test.com', 'lastname@acme-test.com', 'email@acme-test.com', 'user@acme-test.com', 'test@acme-test.com', 'foo@acme-test.com',
+        'noreply@acme-test.com', 'no-reply@acme-test.com', 'donotreply@acme-test.com',
+        'todo-my-email@acme-test.com', 'test-user@acme-test.com', 'sample-x@acme-test.com',
+        'john@example.org', 'john@test.net', 'john@yourcompany.com',
+        'john@mycompany.com', 'john@localhost', 'john@mail.example.com',
+    ):
+        assert is_placeholder_email(dropped), dropped
+    # Real addresses that merely CONTAIN a placeholder word must survive.
+    for kept in (
+        'firstnamelastname@acme-test.com', 'marketingplaceholder@acme-test.com', 'tester@acme-test.com',
+        'testimonials@acme-test.com', 'emailmarketing@acme-test.com', 'barbara@acme-test.com',
+        'info@acme-test.com', 'sales@example-widgets.com', 'john@testcorp.io',
+    ):
+        assert not is_placeholder_email(kept), kept
+    # Wired into extraction: placeholders never reach the hit list, real ones do.
+    html = ('<p>Contact: youremail@example.com or noreply@acme-test.com. '
+            'Real: sales@acme-test.com, jane.doe@acme-test.com</p>')
+    values = [h['value'] for h in extract_emails(build_page('https://acme.com/', html))]
+    assert sorted(values) == ['jane.doe@acme-test.com', 'sales@acme-test.com'], values
 
 
 def main():
     test_decode_cfemail()
     test_deobfuscate_text()
+    test_placeholder_emails()
     test_obfuscated_emails_fixture()
     test_cloudflare_fixture()
     test_hostile_pages()

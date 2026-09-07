@@ -1,5 +1,5 @@
 # Runs every offline unit-test module. No network.
-# python3 -m contact_scraper.test_extractors
+# python3 -m src.contact_scraper.test_extractors
 
 from . import test_aggregate, test_crawler, test_emails, test_phones, test_socials
 
