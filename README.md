@@ -520,7 +520,7 @@ Email: [happy.to.help@omkar.cloud](mailto:happy.to.help@omkar.cloud?subject=Webs
 
 ## ⭐ Love It? [Star It ⭐!](https://github.com/omkarcloud/website-email-contact-scraper)
 
-Star the repo ⭐ and become a star hero!
+Star the repo ⭐ and become my star hero!
 
 It's just 1 click, but it means the world to me.
 
