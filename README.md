@@ -34,23 +34,23 @@ Perfect for **lead generation and enrichment**: feed it a list of websites, get 
 
 Use it two ways — both documented below:
 
-1. **[Hosted API](#example-website-contacts-in-one-request)** — one GET request, no installs, no browsers, no infrastructure. Adds AI extras the open source version doesn't have: sales-email recommendation, email verification, and an AI website finder. 200 requests free.
+1. **[Hosted API on RapidAPI](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api)** — one GET request, no installs, no browsers, no infrastructure. Adds AI extras the open source version doesn't have: sales-email recommendation, email verification, and an AI website finder. 200 requests/month free.
 2. **[Open source](#-run-it-yourself--free--open-source)** — this repo. Run it on your machine with a UI dashboard, free forever for unlimited websites.
 
-[![Try the Website Email & Contact Scraper API in the live playground — free, no signup](https://img.shields.io/badge/%E2%96%B6%20Playground-Run%20a%20live%20request%2C%20free-brightgreen?style=for-the-badge)](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=badge)
+[![Try the Website Email & Contact Scraper API in the RapidAPI playground](https://img.shields.io/badge/%E2%96%B6%20Playground-Run%20a%20live%20request-brightgreen?style=for-the-badge)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb)
 
-[![Free Plan: 200 requests per month](https://img.shields.io/badge/Free%20tier-200%20requests%2Fmonth-blue?style=for-the-badge)](#pricing)
+[![Free Plan: 200 requests per month](https://img.shields.io/badge/Free%20tier-200%20requests%2Fmonth-blue?style=for-the-badge)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/pricing)
 
-The same scraper is also available on **Apify** and **RapidAPI**:
+The same scraper is also available on **Apify**:
 
-[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper) [![Run on RapidAPI](https://img.shields.io/badge/Run%20on-RapidAPI-blue?logo=rapidapi)](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground)
+[![Run on Apify](https://img.shields.io/badge/Run%20on-Apify-blue)](https://apify.com/omkar-cloud/website-email-contact-scraper)
 
 ## Example: Website Contacts in One Request
 
 One request to the contact scraper API:
 
 ```
-GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts?website=vercel.com
+GET https://website-social-scraper-api.p.rapidapi.com/v1/contacts?website=vercel.com
 ```
 
 ```json
@@ -128,9 +128,9 @@ GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/c
 
 *Trimmed for readability — the full response covers 17 social platforms. See the [sample response](#website-contacts) in the API reference.*
 
-**[Run this exact request in the Playground — no signup, no key →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=example)**
+**[Run this exact request in the RapidAPI playground →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb)**
 
-The playground comes prefilled with this request and runs it against the live API in your browser. Use it to try any website before you go through the effort of installing the open source version on your machine.
+The playground comes prefilled with this request and runs it against the live API in your browser (free plan, 200 requests/month).
 
 ## 🚀 Run It Yourself — Free & Open Source
 
@@ -181,7 +181,7 @@ docker-compose build && docker-compose up
 
 ### When to use the API instead
 
-The open source scraper is perfect for lists you run on your laptop. Reach for the [hosted API](#api-reference) when you want contacts inside a product or pipeline — no Chrome to babysit, no servers to maintain, results in one GET request from any language — or when you want the AI extras: [sales-email recommendation](#website-contacts), [email verification](#verify-email), and the [AI website finder](#find-website). [Try it free in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=os-vs-api)
+The open source scraper is perfect for lists you run on your laptop. Reach for the [hosted API](#api-reference) when you want contacts inside a product or pipeline — no Chrome to babysit, no servers to maintain, results in one GET request from any language — or when you want the AI extras: [sales-email recommendation](#website-contacts), [email verification](#verify-email), and the [AI website finder](#find-website). [Try it free on RapidAPI →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb)
 
 ## ⚡ What You Get
 
@@ -194,18 +194,31 @@ The open source scraper is perfect for lists you run on your laptop. Reach for t
 - **🥷 Handles tough websites** — fast HTTP requests first, with automatic escalation to a real Chrome browser for JavaScript-rendered sites and bot-protected pages.
 - **🤖 AI extras (API only)** — an AI-picked `best_sales_email` for cold outreach, real-time email deliverability verification, and an AI website finder that turns a business name into its official website.
 
+## 👀 Try It Without Installing
+
+Want to check the data before setting anything up? The same scraper is hosted on RapidAPI.
+
+1. [Subscribe to the free plan](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/pricing) — 200 requests/month, no credit card.
+2. [Open the playground](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb) — Website Contacts is pre-filled with `vercel.com`. Click **Test Endpoint** to see the full response.
+3. Change the parameters or pick another endpoint. Verify Email and Find Website are there too.
+
+Once you're happy with the data quality, run the open-source version above for **unlimited free** data.
+
 ## Start Getting Data in Minutes
 
-Python and Node.js integration examples are available for every endpoint in the playground, so you can get contact data in minutes instead of days.
+Python and Node.js integration examples are available for every endpoint in the RapidAPI playground, so you can get contact data in minutes instead of days.
 
 ```python
 import requests
 
 # Scrape every email, phone, and social profile from a website
 response = requests.get(
-    "https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts",
+    "https://website-social-scraper-api.p.rapidapi.com/v1/contacts",
     params={"website": "vercel.com"},
-    headers={"API-Key": "YOUR_API_KEY"}
+    headers={
+        "x-rapidapi-key": "YOUR_RAPIDAPI_KEY",
+        "x-rapidapi-host": "website-social-scraper-api.p.rapidapi.com",
+    },
 )
 
 print(response.json())
@@ -215,10 +228,10 @@ print(response.json())
 
 ### Website Contacts
 
-▶ [Try it live in the Playground — no key needed →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-contacts)
+▶ [Try it live in the RapidAPI playground →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb)
 
 ```
-GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/contacts?website=vercel.com
+GET https://website-social-scraper-api.p.rapidapi.com/v1/contacts?website=vercel.com
 ```
 
 Accepts a bare domain (`vercel.com`) or a full URL (`https://vercel.com/`). Optional parameters:
@@ -362,10 +375,10 @@ Returns the site's title and description, every email, phone number, and social 
 
 Real-time deliverability check for an email address: mailbox existence, catch-all detection, disposable/role/free-provider classification, and a typo suggestion — perfect for cleaning the emails you just scraped before a campaign.
 
-▶ [Try it live in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-verify)
+▶ [Try it live in the RapidAPI playground →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_1e297289-df58-4a34-b06d-f6397e1db1cc)
 
 ```
-GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/emails/verify?email=web@netflix.com
+GET https://website-social-scraper-api.p.rapidapi.com/v1/emails/verify?email=web@netflix.com
 ```
 
 #### Response
@@ -394,10 +407,10 @@ GET https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/e
 
 Guess a business's official website from its name plus any extra context keys you care to pass — the perfect first step before a contact scrape when all you have is a company name. Answers are probe-confirmed live; `website` is `null` when the AI isn't confident.
 
-▶ [Try it live in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=endpoint-find)
+▶ [Try it live in the RapidAPI playground →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_c570aebb-816a-4485-8e82-9e94960a9149)
 
 ```
-POST https://website-email-contact-scraper.omkar.cloud/website-email-contact/v1/websites/find
+POST https://website-social-scraper-api.p.rapidapi.com/v1/websites/find
 ```
 
 ```json
@@ -439,14 +452,14 @@ With `recommend_sales_email=true`, the API also adds `best_sales_email` — the 
 
 | Plan | Price | Requests/Month |
 |------|-------|----------------|
-| Free | $0 | 200 |
-| Starter | $16 | 15,000 |
-| Grow | $48 | 75,000 |
-| Scale | $148 | 300,000 |
+| Basic | $0 | 200 |
+| Pro | $16 | 15,000 |
+| Ultra | $48 | 75,000 |
+| Mega | $148 | 300,000 |
 
 1 API call = 1 request
 
-Free Plan Available — [create your API key →](https://www.omkar.cloud/auth/sign-up?redirect=/api-key&utm_source=github&utm_medium=cpc&utm_content=pricing-signup). No credit card for the free tier.
+Free Plan Available — [subscribe on RapidAPI →](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/pricing). No credit card for the free plan.
 
 Rather not pay at all? Run the [open source scraper](#-run-it-yourself--free--open-source) — it's the same code, free forever.
 
@@ -459,9 +472,9 @@ Rather not pay at all? Run the [open source scraper](#-run-it-yourself--free--op
 
 ## ❓ FAQs
 
-### Can I try the API before signing up?
+### Can I try the API before paying?
 
-Yes. The playground runs live requests in your browser — free, no account, no API key. [Try it in the Playground →](https://www.omkar.cloud/tools/website-email-contact-scraper/playground?utm_source=github&utm_medium=cpc&utm_content=faq)
+Yes. [Subscribe to the free plan on RapidAPI](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/pricing) — 200 requests/month, no credit card — and run live requests from the [playground](https://rapidapi.com/pradeepbardiya13/api/website-social-scraper-api/playground/apiendpoint_7d6be0cc-b57d-47dd-87c4-86cf437b1adb) in your browser.
 
 ### Should I use the API or the open source scraper?
 
