@@ -49,6 +49,10 @@ FIRST_WAVE_MIN_SCORE = 60
 # single crawl may spend, and never start one the deadline cannot cover.
 MAX_BROWSER_ESCALATIONS = 6
 MIN_ESCALATION_SECONDS = 10
+# A blocked-mode navigation may spend the driver's whole challenge budget
+# (Turnstile clicks + the csr settle on the cleared page), so it needs a
+# larger slice of the crawl deadline than a plain CSR render.
+MIN_BLOCKED_ESCALATION_SECONDS = 35
 
 _fetch_pool = ThreadPoolExecutor(max_workers=FETCH_POOL_SIZE,
                                  thread_name_prefix='contact-fetch')
@@ -255,6 +259,30 @@ def _pop_wave(frontier, first_wave, budget):
     return wave
 
 
+def _escalation_floor(reason, result):
+    # The longer floor only where Cloudflare's challenge loop may run.
+    from .fetcher import is_cloudflare
+    if reason == 'blocked' and is_cloudflare(result):
+        return MIN_BLOCKED_ESCALATION_SECONDS
+    return MIN_ESCALATION_SECONDS
+
+
+def _still_blocked(result):
+    """The browser refetch is still behind Cloudflare: the fetcher reported a
+    Cloudflare challenge outcome ('blocked: ...'), or the html it returned is
+    Cloudflare's interstitial itself. Other vendors never count here - their
+    pages keep the plain escalation behaviour."""
+    from .fetcher import is_cloudflare_challenge_html
+    if (result.get('error') or '').startswith('blocked:'):
+        return True
+    return is_cloudflare_challenge_html(result.get('html') or '')
+
+
+def _refused(result):
+    # Terminal Cloudflare verdict for this egress: retrying cannot help.
+    return 'refused' in (result.get('error') or '')
+
+
 def crawl_site(query, fetch=None, on_page_kept=None, fetch_many=None, mode='deep'):
     if mode not in ('homepage', 'key_pages', 'deep'):
         # Reject before any fetch: an unknown mode must not silently run the
@@ -294,7 +322,7 @@ def _crawl_site(query, fetch, on_page_kept, fetch_many=None, session=None,
       - 'deep':      full site crawl (the default) — up to MAX_PAGES pages,
                      depth 2, with browser escalation.
     """
-    from .fetcher import POOL_KEY_CSR, needs_browser
+    from .fetcher import ERR_CHALLENGE_TIMEOUT, POOL_KEY_CSR, is_cloudflare, needs_browser
 
     started = time.monotonic()
     deadline = started + MAX_CRAWL_SECONDS
@@ -336,6 +364,7 @@ def _crawl_site(query, fetch, on_page_kept, fetch_many=None, session=None,
     mode = 'requests'  # transport mode; escalation below flips it to csr/blocked
     reason = needs_browser(result)
     if reason:
+        cf_seed = reason == 'blocked' and is_cloudflare(result)
         browser_used = True
         if session is not None:
             session.ensure_pool(reason)
@@ -350,6 +379,19 @@ def _crawl_site(query, fetch, on_page_kept, fetch_many=None, session=None,
             # swap to the headed stealth pool and redo the full page load,
             # same rule as the mid-crawl upgrade below.
             refetched = fetch(result['final_url'], mode='csr', blocked=True)
+        if (_still_blocked(refetched) and not _refused(refetched)
+                and deadline - time.monotonic() >= MIN_BLOCKED_ESCALATION_SECONDS):
+            # One more full navigation: the clearance may have landed right
+            # at the deadline of the first attempt.
+            refetched = fetch(result['final_url'], mode='csr', blocked=True)
+        if _still_blocked(refetched) or (cf_seed and not refetched['html']):
+            # The headed browser could not get past the challenge (or never
+            # got to try: busy pool, dead Chrome). The interstitial has
+            # nothing to extract and no links to follow - report it instead
+            # of returning an empty "success" built from it.
+            out['error'] = refetched['error'] or ERR_CHALLENGE_TIMEOUT
+            out['browser_used'] = True
+            return out
         if refetched['html']:
             result = refetched
         # The full page load above earned any challenge cookies, so blocked
@@ -440,6 +482,7 @@ def _crawl_site(query, fetch, on_page_kept, fetch_many=None, session=None,
                 continue  # redirect landed on an already-fetched page
 
             page = build_page(result['final_url'], result['html'])
+            reason, sets_mode = None, False
             if result['mode_used'] != 'csr':
                 # Covers requests AND blocked results: an in-page fetch
                 # returns raw HTML without running JS, so a CSR page must
@@ -449,35 +492,52 @@ def _crawl_site(query, fetch, on_page_kept, fetch_many=None, session=None,
                 # be fetched a second time.
                 reason = needs_browser(result, text=page.text, soup=page.soup)
                 if reason and (escalations >= MAX_BROWSER_ESCALATIONS
-                               or deadline - time.monotonic() < MIN_ESCALATION_SECONDS):
+                               or deadline - time.monotonic() < _escalation_floor(reason, result)):
                     # Budget spent (or too little time left to finish one):
                     # keep the raw-HTML result rather than stalling the crawl.
                     reason = None
-                if reason:
-                    escalations += 1
-                    browser_used = True
-                    if session is not None:
-                        session.ensure_pool(reason)
-                    refetched = fetch(url, mode='csr',
-                                      blocked=reason == 'blocked')
-                    if refetched['html']:
-                        result = refetched
-                        page = build_page(result['final_url'], result['html'])
-                    mode = 'csr' if reason == 'csr' else 'blocked'
+                sets_mode = True
             elif (session is not None and session.pool_key == POOL_KEY_CSR
                     and escalations < MAX_BROWSER_ESCALATIONS
-                    and deadline - time.monotonic() >= MIN_ESCALATION_SECONDS
+                    and deadline - time.monotonic() >= _escalation_floor('blocked', result)
                     and needs_browser(result, text=page.text, soup=page.soup) == 'blocked'
                     and session.upgrade_for_block()):
-                escalations += 1
                 # Mixed signals, blocked wins: a challenge served to the
                 # headless CSR chrome swaps the session to the headed stealth
                 # pool (once per crawl) and refetches this one page there.
+                reason = 'blocked'
+            if reason:
+                cf_page = reason == 'blocked' and is_cloudflare(result)
+                escalations += 1
                 browser_used = True
-                refetched = fetch(url, mode='csr', blocked=True)
+                if session is not None:
+                    session.ensure_pool(reason)
+                refetched = fetch(url, mode='csr', blocked=reason == 'blocked')
+                if (reason == 'blocked' and _still_blocked(refetched)
+                        and not _refused(refetched)
+                        and deadline - time.monotonic() >= MIN_BLOCKED_ESCALATION_SECONDS):
+                    # One more full navigation: the clearance may have
+                    # landed right at the deadline of the first attempt.
+                    refetched = fetch(url, mode='csr', blocked=True)
+                if reason == 'blocked' and (_still_blocked(refetched)
+                                            or (cf_page and not refetched['html'])):
+                    # The browser could not get past this page's challenge:
+                    # drop the page (an interstitial has nothing to extract
+                    # and no links) but keep the crawl. A refusal is
+                    # terminal for the whole host - spend no more
+                    # escalations on it.
+                    if _refused(refetched):
+                        escalations = MAX_BROWSER_ESCALATIONS
+                    consecutive_failures += 1
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        stop = True
+                        break
+                    continue
                 if refetched['html']:
                     result = refetched
                     page = build_page(result['final_url'], result['html'])
+                if sets_mode:
+                    mode = 'csr' if reason == 'csr' else 'blocked'
 
             # Re-check: the browser refetch may have redirected somewhere new.
             if registrable_domain(result['final_url']) != domain:

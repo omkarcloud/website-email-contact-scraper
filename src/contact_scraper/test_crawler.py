@@ -542,6 +542,163 @@ def test_crawl_mode_invalid():
         raise AssertionError('invalid mode must raise ValueError')
 
 
+CF_INTERSTITIAL = ('<html><head><title>Just a moment...</title></head><body>'
+                   '<script>(function(){window._cf_chl_opt = {cvId: "3"};})();</script></body></html>')
+PX_INTERSTITIAL = ('<html><head><title>Access to this page has been denied</title></head>'
+                   '<body><p>Please verify you are a human</p></body></html>')
+SHIELD_HOME = """<html><body><nav>
+    <a href="/contact">Contact</a><a href="/about">About</a></nav>
+    <p>Plenty of real homepage text to keep needs_browser quiet.</p>
+    </body></html>"""
+
+
+def _seed_fetch(requests_html, browser, calls):
+    # requests mode -> a 403 with requests_html; csr mode -> browser(n) for
+    # the n-th browser call (1-based).
+    def fetch(url, mode='requests', blocked=False):
+        calls.append((normalize_url(url), mode, blocked))
+        if mode == 'requests':
+            return {'final_url': url, 'status': 403, 'html': requests_html,
+                    'mode_used': mode, 'error': None}
+        n = sum(1 for c in calls if c[1] == 'csr')
+        return dict(browser(n), mode_used='csr')
+    return fetch
+
+
+def test_crawl_cf_refetch_still_blocked():
+    # Cloudflare seed the browser could not clear: the crawl reports the
+    # fetcher's 'blocked:' error, keeps no pages (never extracts from the
+    # interstitial), and tried exactly one retry navigation.
+    calls = []
+    fetch = _seed_fetch(CF_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': 403, 'html': '',
+        'error': 'blocked: cloudflare challenge did not clear'}, calls)
+    result = crawl_site('shield.com', fetch=fetch)
+    assert result['error'] == 'blocked: cloudflare challenge did not clear', result['error']
+    assert result['pages'] == [], result['pages']
+    assert result['browser_used'] is True
+    csr = [c for c in calls if c[1] == 'csr']
+    assert len(csr) == 2 and all(c[2] is True for c in csr), calls
+
+
+def test_crawl_cf_refused_no_retry():
+    calls = []
+    fetch = _seed_fetch(CF_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': 403, 'html': '',
+        'error': 'blocked: cloudflare refused this ip'}, calls)
+    result = crawl_site('shield.com', fetch=fetch)
+    assert result['error'] == 'blocked: cloudflare refused this ip', result['error']
+    assert result['pages'] == []
+    assert len([c for c in calls if c[1] == 'csr']) == 1, calls
+
+
+def test_crawl_cf_browser_unavailable_is_an_error():
+    # A Cloudflare seed whose browser refetch never ran (busy pool) must not
+    # be "extracted" from the requests-mode interstitial.
+    calls = []
+    fetch = _seed_fetch(CF_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': None, 'html': '',
+        'error': 'browser busy: no warm chrome in 180s'}, calls)
+    result = crawl_site('shield.com', fetch=fetch)
+    assert result['error'] == 'browser busy: no warm chrome in 180s', result['error']
+    assert result['pages'] == []
+    assert len([c for c in calls if c[1] == 'csr']) == 1, calls   # no Cloudflare retry
+
+
+def test_crawl_cf_second_try_clears():
+    # The first blocked navigation still shows the interstitial (status 200,
+    # config present); the retry lands on the real page.
+    calls = []
+    fetch = _seed_fetch(CF_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': 200, 'error': None,
+        'html': CF_INTERSTITIAL if n == 1 else SHIELD_HOME}, calls)
+    result = crawl_site('shield.com', fetch=fetch, mode='homepage')
+    assert result['error'] is None, result['error']
+    assert [p['page'].url for p in result['pages']] == ['https://shield.com/']
+    assert len([c for c in calls if c[1] == 'csr']) == 2, calls
+
+
+def test_crawl_non_cf_block_keeps_old_behaviour():
+    # PerimeterX seed, browser served the same interstitial: no Cloudflare
+    # retry, no error-out - the pre-existing escalation behaviour, unchanged.
+    calls = []
+    fetch = _seed_fetch(PX_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': 403, 'html': PX_INTERSTITIAL,
+        'error': None}, calls)
+    result = crawl_site('shield.com', fetch=fetch, mode='homepage')
+    assert result['error'] is None, result['error']
+    assert len(result['pages']) == 1
+    assert len([c for c in calls if c[1] == 'csr']) == 1, calls
+
+
+def test_crawl_non_cf_browser_unavailable_keeps_old_behaviour():
+    calls = []
+    fetch = _seed_fetch(PX_INTERSTITIAL, lambda n: {
+        'final_url': 'https://shield.com/', 'status': None, 'html': '',
+        'error': 'browser busy: no warm chrome in 180s'}, calls)
+    result = crawl_site('shield.com', fetch=fetch, mode='homepage')
+    assert result['error'] is None, result['error']
+    assert len(result['pages']) == 1          # the requests-mode page, as before
+
+
+def test_crawl_old_style_interstitial_without_config_keeps_old_behaviour():
+    # A bare "<title>Just a moment...</title>" 403 (no Cloudflare config,
+    # no cf-mitigated header) escalates as before but gets no Cloudflare
+    # retry / error-out.
+    calls = []
+    fetch = _seed_fetch('<html><head><title>Just a moment...</title></head></html>', lambda n: {
+        'final_url': 'https://shield.com/', 'status': 200, 'html': SHIELD_HOME,
+        'error': None}, calls)
+    result = crawl_site('shield.com', fetch=fetch, mode='homepage')
+    assert result['error'] is None and len(result['pages']) == 1
+    assert len([c for c in calls if c[1] == 'csr']) == 1, calls
+
+
+def _site_fetch(contact_requests_html, contact_browser, calls):
+    def fetch(url, mode='requests', blocked=False):
+        key = normalize_url(url)
+        calls.append((key, mode))
+        if key == 'https://shield.com/contact':
+            if mode == 'requests':
+                return {'final_url': url, 'status': 403, 'html': contact_requests_html,
+                        'mode_used': mode, 'error': None}
+            return dict(contact_browser, final_url=url, mode_used='csr')
+        if key == 'https://shield.com/about':
+            return {'final_url': url, 'status': 200,
+                    'html': '<html><body><p>About Shield Co.</p></body></html>',
+                    'mode_used': mode, 'error': None}
+        return {'final_url': 'https://shield.com/', 'status': 200,
+                'html': SHIELD_HOME, 'mode_used': mode, 'error': None}
+    return fetch
+
+
+def test_crawl_midcrawl_cf_rechallenge_drops_page():
+    # Cloudflare challenges /contact again on every browser attempt (path-
+    # scoped rule): that page is dropped, the crawl keeps going.
+    calls = []
+    fetch = _site_fetch(CF_INTERSTITIAL, {'status': 403, 'html': '',
+                                          'error': 'blocked: cloudflare challenge did not clear'}, calls)
+    result = crawl_site('shield.com', fetch=fetch)
+    assert result['error'] is None, result['error']
+    urls = [p['page'].url for p in result['pages']]
+    assert urls == ['https://shield.com/', 'https://shield.com/about'], urls
+    assert result['browser_used'] is True
+    assert calls.count(('https://shield.com/contact', 'csr')) == 2, calls
+
+
+def test_crawl_midcrawl_non_cf_keeps_raw_page():
+    # PerimeterX on /contact and the browser nav failed: as before, the raw
+    # requests-mode page is kept - no Cloudflare drop, no retry.
+    calls = []
+    fetch = _site_fetch(PX_INTERSTITIAL, {'status': None, 'html': '',
+                                          'error': 'csr nav: net::ERR_TIMED_OUT'}, calls)
+    result = crawl_site('shield.com', fetch=fetch)
+    assert result['error'] is None, result['error']
+    urls = [p['page'].url for p in result['pages']]
+    assert 'https://shield.com/contact' in urls, urls
+    assert calls.count(('https://shield.com/contact', 'csr')) == 1, calls
+
+
 def main():
     test_score_link()
     test_keyword_buckets_tech_pages()
@@ -565,6 +722,15 @@ def main():
     test_crawl_mode_key_pages_caps_at_first_wave_max()
     test_crawl_mode_key_pages_csr()
     test_crawl_mode_invalid()
+    test_crawl_cf_refetch_still_blocked()
+    test_crawl_cf_refused_no_retry()
+    test_crawl_cf_browser_unavailable_is_an_error()
+    test_crawl_cf_second_try_clears()
+    test_crawl_non_cf_block_keeps_old_behaviour()
+    test_crawl_non_cf_browser_unavailable_keeps_old_behaviour()
+    test_crawl_old_style_interstitial_without_config_keeps_old_behaviour()
+    test_crawl_midcrawl_cf_rechallenge_drops_page()
+    test_crawl_midcrawl_non_cf_keeps_raw_page()
 
 
 if __name__ == '__main__':

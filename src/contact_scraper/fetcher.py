@@ -61,6 +61,44 @@ CHALLENGE_MARKERS = (
     "var dd={'rt':",                  # DataDome interstitial (seen on g2.com)
 )
 
+# Fetch errors for a challenge the headed browser could not get past. Every
+# challenge outcome starts with 'blocked:' - the crawler keys on the prefix
+# to stop extracting from (and enqueuing links off) the interstitial.
+ERR_CHALLENGE_TIMEOUT = 'blocked: cloudflare challenge did not clear'
+ERR_CHALLENGE_REFUSED = 'blocked: cloudflare refused this ip'
+
+
+def _is_challenge_html(html):
+    return any(marker in html for marker in CHALLENGE_MARKERS)
+
+
+def is_cloudflare_challenge_html(html):
+    # Cloudflare's interstitial itself (raw html, case-sensitive): its inline
+    # orchestration config, or its title next to a challenge-platform script.
+    # Mirrors patchright_driver.cloudflare_verdict.
+    return '_cf_chl_opt' in html or (
+        '<title>Just a moment...' in html and 'challenge-platform' in html)
+
+
+def is_cloudflare(result):
+    """Cloudflare stands in front of this page: the browser reported a
+    challenge outcome ('blocked: ...'), the response carries Cloudflare's
+    `cf-mitigated: challenge` header, or the html is its interstitial or
+    firewall block page. Gates every Cloudflare-specific step of the crawl
+    (retry, error-out, the longer escalation floor): other vendors and plain
+    403s keep the pre-Cloudflare-handling behaviour."""
+    if (result.get('error') or '').startswith('blocked:'):
+        return True
+    for name, value in (result.get('headers') or {}).items():
+        if name.lower() == 'cf-mitigated' and 'challenge' in str(value).lower():
+            return True
+    html = result.get('html') or ''
+    if is_cloudflare_challenge_html(html):
+        return True
+    return 'id="cf-error-details"' in html and (
+        'Sorry, you have been blocked' in html or 'You are unable to access' in html)
+
+
 # App-shell mounts: a tiny html body with only one of these and almost no links
 # means the real content is rendered client-side.
 APP_SHELL_MARKERS = (
@@ -215,6 +253,11 @@ def _browser_light_get(driver, url):
     if not resp.ok:
         return None
     html, error = _guard_html(resp.text or '', resp.headers.get('content-type'))
+    if html and is_cloudflare_challenge_html(html):
+        # Path-scoped Cloudflare re-challenge (the clearance covers the
+        # homepage but not this path): navigate for real, and click, like a
+        # transport failure.
+        return None
     return _result(resp.url or url, resp.status_code, html, 'blocked',
                    error, headers=resp.headers)
 
@@ -250,6 +293,25 @@ def _fetch_page_browser(driver, url, light, is_blocked=False):
     # Real HTTP status when playwright exposes one (used by needs_browser);
     # same-document navigations expose none and count as 200.
     status = nav['status'] if nav['status'] is not None else 200
+    outcome = nav.get('challenge')
+    if outcome is not None:
+        print(f"contact: challenge on {final_url[:80]} -> {outcome} "
+              f"(clicks={nav.get('challenge_clicks', 0)}, "
+              f"title={nav.get('challenge_title', '')!r}, status={status})")
+    if outcome == 'refused':
+        # Terminal Cloudflare page: this egress is refused for the host.
+        # Drop the host's cookies so a half-minted clearance is not replayed
+        # on the next crawl, and report it - the interstitial has nothing
+        # to extract.
+        try:
+            driver.clear_cookies(final_url)
+        except Exception:
+            pass
+        return _result(final_url, status, '', 'csr', ERR_CHALLENGE_REFUSED,
+                       headers=nav.get('headers') or {})
+    if outcome == 'timeout':
+        return _result(final_url, status, '', 'csr', ERR_CHALLENGE_TIMEOUT,
+                       headers=nav.get('headers') or {})
     return _result(final_url, status, (nav['html'] or '')[:MAX_HTML_BYTES],
                    'csr', None, headers=nav.get('headers') or {})
 
@@ -328,12 +390,14 @@ def fetch_pages_light(urls, session):
         if resp.ok:
             html, error = _guard_html(resp.text or '',
                                       resp.headers.get('content-type'))
-            out.append(_result(resp.url or url, resp.status_code, html,
-                               'blocked', error, headers=resp.headers))
-            continue
+            if not (html and is_cloudflare_challenge_html(html)):
+                out.append(_result(resp.url or url, resp.status_code, html,
+                                   'blocked', error, headers=resp.headers))
+                continue
+            # else: path-scoped Cloudflare re-challenge - navigate (and click) below
         try:
-            # Transport failure (CORS, network): navigation fallback, same
-            # semantics as the single-URL blocked path.
+            # Transport failure (CORS, network) or a re-challenge: navigation
+            # fallback, same semantics as the single-URL blocked path.
             out.append(_fetch_page_browser(driver, url, light=False,
                                            is_blocked=True))
         except Exception as e:
@@ -383,7 +447,7 @@ def needs_browser(result, text=None, soup=None):
     if result.get('status') in BLOCK_STATUSES:
         return 'blocked'
     html = result.get('html') or ''
-    if any(marker in html for marker in CHALLENGE_MARKERS):
+    if _is_challenge_html(html):
         return 'blocked'
     lowered = html.lower()
     if (len(html) < 5000
@@ -441,3 +505,17 @@ if __name__ == '__main__':
         print(f'spa (csr, pool={pool_used}):', rendered['status'],
               len(rendered['html']),
               'text chars =', len(soup_to_text(html_to_soup(rendered['html']))))
+
+    if os.environ.get('CONTACT_PROBE_CF'):
+        # Opt-in: the blocked path against a Cloudflare-fronted site. On a
+        # home IP expect challenge='cleared' with 0-1 clicks; 'refused' means
+        # Cloudflare denies this egress outright.
+        cf_url = os.environ.get('CONTACT_PROBE_CF_URL', 'https://www.crunchbase.com/')
+        session = BrowserSession()
+        session.ensure_pool('blocked')
+        try:
+            cf = fetch_page(cf_url, mode='csr', session=session, blocked=True)
+        finally:
+            session.close()
+        print(f'cloudflare ({cf_url}):', cf['status'], len(cf['html']),
+              'error =', cf['error'], 'needs_browser =', needs_browser(cf))

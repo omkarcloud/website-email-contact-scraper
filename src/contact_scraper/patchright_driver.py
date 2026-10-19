@@ -33,6 +33,7 @@ import json
 from botasaurus.env import IS_IN_KUBERNETES, IS_DOCKER, get_os
 import os
 import queue
+import random
 import re
 import shutil
 import sys
@@ -55,6 +56,41 @@ FETCH_TIMEOUT_MS = 30000  # per in-page fetch (AbortSignal), under CALL_TIMEOUT
 # stability poll and the blocked challenge-clear poll.
 SETTLE_IDLE_MS = 2000
 SETTLE_BUDGET_MS = 8000
+
+# Blocked-mode challenge clearing (nav(mode='blocked')). A headed real Chrome
+# usually clears a Cloudflare managed challenge by itself in 2-8 s; when the
+# Turnstile checkbox is shown (residential exits, stricter sites) the loop
+# clicks it like a person would: first click 3 s in, then every 4 s, at most
+# 4 times. nav() is ONE marshalled op under CALL_TIMEOUT, so the loop and the
+# csr settle after it are budgeted from what the goto left over.
+CHALLENGE_BUDGET_MS = 25000
+CHALLENGE_POLL_MS = 500
+CHALLENGE_FIRST_CLICK_MS = 3000
+CHALLENGE_CLICK_EVERY_MS = 4000
+CHALLENGE_MAX_CLICKS = 4
+NAV_OP_BUDGET_MS = CALL_TIMEOUT * 1000 - 5000   # 5 s headroom for the snapshot
+NAV_SETTLE_RESERVE_MS = 3000                     # keep a sliver of csr settle after a clear
+# Cloudflare detection. The challenge loop runs ONLY on a page identified as
+# Cloudflare's own: other vendors' interstitials (PerimeterX, DataDome,
+# Akamai, Incapsula) and plain 403s keep the plain csr settle. Evidence:
+#   * the goto response's `cf-mitigated: challenge` header;
+#   * the interstitial's inline orchestration config `_cf_chl_opt` - only
+#     challenge pages carry it;
+#   * its "Just a moment..." title, but only together with a
+#     challenge-platform script (an app's own loading title is not a
+#     challenge).
+# Deliberately NOT evidence: a `/cdn-cgi/challenge-platform/` path alone
+# (ordinary pages behind Cloudflare Bot Management carry its jsd beacon) and
+# a challenges.cloudflare.com iframe (a contact form's Turnstile widget).
+CF_CHALLENGE_TITLES = ("just a moment", "one moment, please")
+CF_CHALLENGE_HTML = ("_cf_chl_opt",)
+# Terminal Cloudflare pages: the firewall block ("Attention Required! |
+# Cloudflare" / "Sorry, you have been blocked") and access rules ("Access
+# denied | <host> used Cloudflare to restrict access"). The title must name
+# Cloudflare: Akamai's own "Access Denied" page is not this.
+CF_REFUSED_TITLE_WORDS = ("attention required", "access denied", "restrict access")
+CF_REFUSED_HTML = ("Sorry, you have been blocked", "You are unable to access")
+_now = time.monotonic   # module attribute: tests swap in a fake clock
 
 # In-page fetch run from the loaded page, so it inherits the page's cookies,
 # Cloudflare clearance and TLS fingerprint. The browser attaches the forbidden
@@ -269,10 +305,10 @@ def _page_content(page):
         return None
 
 
-def _settle_csr(page):
+def _settle_csr(page, budget_ms=SETTLE_BUDGET_MS):
     """networkidle fast-exit, then a content-length stability poll ONLY when
     the page still looks like an unrendered app shell — fast pages pay the
-    old <=2s wait, slow SPAs get up to SETTLE_BUDGET_MS to render.
+    old <=2s wait, slow SPAs get up to budget_ms (SETTLE_BUDGET_MS) to render.
 
     Every probe is deadline-checked. A page whose JS never stops working
     (SPA render loop, runaway allocation) makes each individual probe block
@@ -280,14 +316,16 @@ def _settle_csr(page):
     driver's CALL_TIMEOUT and the caller sees a "wedged" driver rather than
     the partial page that was already renderable. The budget is the whole
     settle phase, not per probe."""
+    if budget_ms <= 0:
+        return   # a playwright timeout of 0 means "wait forever" - never pass it
     start = time.monotonic()
 
     def left_ms(cap):
         # Remaining settle budget, clamped to `cap`; 0 when spent.
-        return max(0, min(cap, int(SETTLE_BUDGET_MS - (time.monotonic() - start) * 1000)))
+        return max(0, min(cap, int(budget_ms - (time.monotonic() - start) * 1000)))
 
     try:
-        page.wait_for_load_state("networkidle", timeout=min(SETTLE_IDLE_MS, SETTLE_BUDGET_MS))
+        page.wait_for_load_state("networkidle", timeout=min(SETTLE_IDLE_MS, budget_ms))
     except Exception:
         pass
     probe_ms = left_ms(1000)
@@ -302,7 +340,7 @@ def _settle_csr(page):
             # stability poll below exists for, so fall through to it.
             pass
     prev = None
-    while left_ms(SETTLE_BUDGET_MS):
+    while left_ms(budget_ms):
         page.wait_for_timeout(min(300, left_ms(300)) or 1)
         html = _page_content(page)
         cur = len(html) if html is not None else None
@@ -311,27 +349,136 @@ def _settle_csr(page):
         prev = cur
 
 
-def _settle_blocked(page, markers):
-    """Challenge-clear poll: return immediately when no challenge markup is
-    on the page (plain 403s never had one, nothing to wait for); otherwise
-    poll until the interstitial swaps itself out for the real page, capped
-    at SETTLE_BUDGET_MS."""
-    html = _page_content(page)
-    if html is not None and not any(m in html for m in markers):
-        return
-    deadline = time.monotonic() + SETTLE_BUDGET_MS / 1000
-    while time.monotonic() < deadline:
-        page.wait_for_timeout(400)
-        html = _page_content(page)
+def click_turnstile(page):
+    """Real mouse click on a Cloudflare Turnstile checkbox: the widget
+    iframe's bounding box, x at 1/9 of the width (the checkbox), y at the
+    middle, with a little jitter and a stepped mouse move. Returns True when
+    a challenge frame was found and clicked. Shared home for the copies in
+    envato/util.py, crunchbase/fetch.py, letterboxd/fetch.py and
+    indeed/fetch.py (switching those over is a separate cleanup)."""
+    for frame in page.frames:
+        if not frame.url.startswith("https://challenges.cloudflare.com"):
+            continue
+        try:
+            box = frame.frame_element().bounding_box()
+        except Exception:
+            box = None
+        if not box or box.get("width", 0) < 50:
+            continue
+        x = box["x"] + box["width"] / 9 + random.uniform(-5, 5)
+        y = box["y"] + box["height"] / 2 + random.uniform(-5, 5)
+        page.mouse.move(x, y, steps=random.randint(10, 25))
+        page.wait_for_timeout(random.randint(100, 300))
+        page.mouse.down()
+        page.wait_for_timeout(random.randint(50, 150))
+        page.mouse.up()
+        return True
+    return False
+
+
+# Every substring cloudflare_verdict looks for. The challenge loop asks the
+# page which of these it contains (_cf_markers) instead of shipping the whole
+# document out of Chrome: on a non-Cloudflare page the detection then costs a
+# title read and one tiny evaluate, whatever the page size.
+_CF_PROBE_MARKERS = CF_CHALLENGE_HTML + ("challenge-platform", 'id="cf-error-details"') + CF_REFUSED_HTML
+_CF_PROBE_JS = """(markers) => {
+  const d = document.documentElement;
+  if (!d) return '';
+  const h = d.outerHTML;
+  return markers.filter((m) => h.includes(m)).join('\\n');
+}"""
+
+
+def _cf_markers(page):
+    """The _CF_PROBE_MARKERS present in the page, newline-joined (a string
+    cloudflare_verdict reads like html); None while a navigation is in
+    flight."""
+    try:
+        return page.evaluate(_CF_PROBE_JS, list(_CF_PROBE_MARKERS))
+    except Exception:
+        return None
+
+
+def cloudflare_verdict(title, html, cf_mitigated=False):
+    """'refused' / 'challenge' / None for one page snapshot (title
+    lowercased, html raw; either may be None). None means the page is not
+    Cloudflare's interstitial or block page - whatever else it is."""
+    if title and "cloudflare" in title and any(w in title for w in CF_REFUSED_TITLE_WORDS):
+        return "refused"
+    if html and 'id="cf-error-details"' in html and any(m in html for m in CF_REFUSED_HTML):
+        return "refused"
+    if cf_mitigated:
+        return "challenge"
+    if html and any(m in html for m in CF_CHALLENGE_HTML):
+        return "challenge"
+    if (title and html and any(t in title for t in CF_CHALLENGE_TITLES)
+            and "challenge-platform" in html):
+        return "challenge"
+    return None
+
+
+def _settle_challenge(page, budget_ms=CHALLENGE_BUDGET_MS, cf_mitigated=False):
+    """Cloudflare challenge-clear loop for nav(mode='blocked'), run on the
+    owner thread. Returns (outcome, last_title, clicks) with outcome one of:
+      None       not a Cloudflare page (no challenge, or another vendor's):
+                 returned at once, nothing waited for or clicked
+      'cleared'  the interstitial swapped itself out for the real page
+      'timeout'  still challenged when budget_ms ran out
+      'refused'  a terminal Cloudflare page (firewall block / access rule):
+                 this egress is refused, clicking cannot help
+    cf_mitigated is the goto response's `cf-mitigated: challenge` header.
+    Turnstile is clicked when due (click_turnstile)."""
+    def state():
+        try:
+            title = (page.title() or "").lower()
+        except Exception:
+            title = None            # mid-reload: execution context destroyed
+        return title, _cf_markers(page)
+
+    title, html = state()
+    for _ in range(3):
+        if html is not None:
+            break
+        # The document is swapping right after domcontentloaded (a redirect,
+        # or Cloudflare's own reload): let it become readable.
+        page.wait_for_timeout(300)
+        title, html = state()
+    verdict = cloudflare_verdict(title, html, cf_mitigated)
+    if verdict == 'refused':
+        return 'refused', title, 0
+    if verdict is None:
+        return None, title, 0
+    start = _now()
+    clicks, last_click = 0, None
+    while True:
+        elapsed_ms = (_now() - start) * 1000
+        if elapsed_ms >= budget_ms:
+            return 'timeout', title, clicks
+        due = ((last_click is None and elapsed_ms >= CHALLENGE_FIRST_CLICK_MS)
+               or (last_click is not None
+                   and (_now() - last_click) * 1000 >= CHALLENGE_CLICK_EVERY_MS))
+        if due and clicks < CHALLENGE_MAX_CLICKS:
+            try:
+                if click_turnstile(page):
+                    clicks += 1
+                    last_click = _now()
+            except Exception:
+                pass                # the frame navigated under the click
+        page.wait_for_timeout(max(1, min(CHALLENGE_POLL_MS, int(budget_ms - elapsed_ms))))
+        title, html = state()
         if html is None:
-            continue  # mid-reload: the challenge is clearing right now
-        if not any(m in html for m in markers):
+            continue                # reloading - usually the clearance itself
+        verdict = cloudflare_verdict(title, html)
+        if verdict == 'refused':
+            return 'refused', title, clicks   # terminal verdict mid-loop
+        if verdict is None:
             # Cleared - give the real page a moment to finish loading.
             try:
                 page.wait_for_load_state("networkidle", timeout=1000)
             except Exception:
                 pass
-            return
+            return 'cleared', title, clicks
+
 
 
 def _proxy_dict(proxy_url):
@@ -566,25 +713,38 @@ class PatchrightDriver:
 
     def nav(self, url, referer=None, mode='csr', challenge_markers=()):
         """Navigate + mode-aware settle + snapshot as ONE owner-thread op.
-        Returns plain data {'url','status','ok','headers','html'} that is safe
-        to hand across threads (goto()'s playwright Response is greenlet-bound
-        to the owner thread and must never leave it). status/headers are
-        None/{} when playwright returns no response (same-document
-        navigation). Raises on navigation failure (net::ERR_*, goto timeout)
-        exactly like goto().
+        Returns plain data {'url','status','ok','headers','html','challenge',
+        'challenge_title','challenge_clicks'} that is safe to hand across
+        threads (goto()'s playwright Response is greenlet-bound to the owner
+        thread and must never leave it). status/headers are None/{} when
+        playwright returns no response (same-document navigation). Raises on
+        navigation failure (net::ERR_*, goto timeout) exactly like goto().
 
         mode picks the settle strategy (budgets are module constants):
           'csr'      networkidle capped at SETTLE_IDLE_MS; if the body is
                      still an empty app shell afterwards, a content-length
                      stability poll runs up to SETTLE_BUDGET_MS.
-          'blocked'  returns immediately unless one of challenge_markers is
-                     on the page; otherwise polls until the interstitial
-                     clears (capped at SETTLE_BUDGET_MS).
+          'blocked'  Cloudflare pages only (cloudflare_verdict): poll up to
+                     CHALLENGE_BUDGET_MS, clicking the Turnstile checkbox
+                     when shown, then the csr settle on the cleared page.
+                     Every other page - another vendor's interstitial, a
+                     plain 403, a normal page - gets exactly the csr settle.
+                     'challenge' reports None / 'cleared' / 'timeout' /
+                     'refused' (see _settle_challenge); the html snapshot is
+                     taken regardless so callers can inspect an interstitial.
+                     challenge_markers is accepted for the existing callers
+                     and no longer consulted.
+        The whole op is budgeted under NAV_OP_BUDGET_MS (< CALL_TIMEOUT):
+        a slow goto shortens the challenge loop and the settle after it.
         status/ok/headers come from the LAST main-frame document response
         seen — a challenge that clears during the settle reports the real
         page's status, not the interstitial's 403."""
         def _do(page):
             docs = []
+            op_start = time.monotonic()
+
+            def left_ms():
+                return max(0, NAV_OP_BUDGET_MS - int((time.monotonic() - op_start) * 1000))
 
             def _on_response(resp):
                 try:
@@ -595,15 +755,28 @@ class PatchrightDriver:
                     pass
 
             page.on("response", _on_response)
+            challenge, challenge_title, clicks = None, None, 0
             try:
                 resp = page.goto(url, referer=referer,
                                  wait_until="domcontentloaded",
                                  timeout=GOTO_TIMEOUT_MS)
-                # print(mode)
                 if mode == 'blocked':
-                    # _settle_blocked(page, challenge_markers)
-                    # csr seems better for tesla.com
-                    _settle_csr(page)
+                    try:
+                        cf_mitigated = (resp is not None and "challenge" in
+                                        (resp.headers.get("cf-mitigated") or "").lower())
+                    except Exception:
+                        cf_mitigated = False
+                    challenge, challenge_title, clicks = _settle_challenge(
+                        page,
+                        budget_ms=min(CHALLENGE_BUDGET_MS,
+                                      max(0, left_ms() - NAV_SETTLE_RESERVE_MS)),
+                        cf_mitigated=cf_mitigated)
+                    if challenge is None:
+                        _settle_csr(page)           # not Cloudflare: unchanged path
+                    elif challenge == 'cleared':
+                        # The real page: the usual csr settle (an SPA behind
+                        # Cloudflare still has to render - tesla.com).
+                        _settle_csr(page, budget_ms=min(SETTLE_BUDGET_MS, left_ms()))
                 else:
                     _settle_csr(page)
                 final = docs[-1] if docs else resp
@@ -620,7 +793,10 @@ class PatchrightDriver:
                     "status": final.status if final is not None else None,
                     "ok": final.ok if final is not None else True,
                     "headers": dict(final.headers) if final is not None else {},
-                    "html": html}
+                    "html": html,
+                    "challenge": challenge,
+                    "challenge_title": (challenge_title or "")[:80],
+                    "challenge_clicks": clicks}
         return self.call(_do)
 
     def evaluate(self, js, arg=None):
@@ -635,6 +811,28 @@ class PatchrightDriver:
     def blank(self):
         """Park on about:blank, releasing the current page's renderer memory."""
         self.call(lambda page: page.goto("about:blank"))
+
+    def clear_cookies(self, url=None):
+        """Drop the cookies for url's host and its parent domains (every
+        cookie when url is None). Used after a terminal Cloudflare refusal so
+        a half-minted cf_clearance is not replayed on the next crawl of that
+        host. The domain filter needs playwright >= 1.43; older builds clear
+        the whole jar (other hosts just re-earn their clearance)."""
+        host = (urlparse(url).hostname or "").lower() if url else ""
+        labels = host.split(".") if host else []
+        suffixes = [".".join(labels[i:]) for i in range(len(labels) - 1)]
+        pattern = re.compile(r"^\.?(" + "|".join(re.escape(s) for s in suffixes) + r")$") \
+            if suffixes else None
+
+        def _do(page):
+            if pattern is not None:
+                try:
+                    page.context.clear_cookies(domain=pattern)
+                    return
+                except TypeError:
+                    pass
+            page.context.clear_cookies()
+        self.call(_do)
 
     def content_frames(self):
         """HTML of every frame (main first, then iframes) as one owner-thread
