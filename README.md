@@ -133,7 +133,7 @@ You're a developer — we know how hard completing a project can be. So we offer
 
 [![Message Us on WhatsApp about Website Email & Contact Scraper](https://raw.githubusercontent.com/omkarcloud/assets/master/images/whatsapp-us.png)](https://www.omkar.cloud/l/website-email-contact-scraper-github-whatsapp)
 
-[![Ask Us by Email about Website Email & Contact Scraper](https://raw.githubusercontent.com/omkarcloud/assets/master/images/ask-on-email.png)](https://www.omkar.cloud/l/website-email-contact-scraper-github-email)
+[![Ask Us by Email about Website Email & Contact Scraper](https://raw.githubusercontent.com/omkarcloud/assets/master/images/ask-on-email.png)](mailto:happy.to.help@omkar.cloud?subject=Help%20with%20Website%20Email%20Contact%20Scraper&body=I%20need%20help%20using%20the%20Website%20Email%20%26%20Contact%20Scraper.)
 
 Found a website where it misses a contact? [Open an issue](https://github.com/omkarcloud/website-email-contact-scraper/issues) with the URL — real-world edge cases are how the extraction rules got this good.
 
